@@ -3,75 +3,103 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>EEG脑电数据可视化</title>
+<title>EEG 脑电数据可视化系统</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
 <style>
-*{margin:0;padding:0;box-sizing:border-box;font-family:-apple-system,'Microsoft YaHei',sans-serif}
-body{background:#f8f9fa;color:#333}
-.header{background:linear-gradient(135deg,#1a1a4e,#2d5bd6);color:#fff;padding:16px 20px;text-align:center}
-.header h1{font-size:22px;font-weight:600;letter-spacing:2px}
-.controls{background:#fff;padding:10px 20px;border-bottom:1px solid #e0e0e0;display:flex;flex-wrap:wrap;gap:8px;align-items:end}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#f5f6fa;color:#2d3436;font-family:-apple-system,'Microsoft YaHei','PingFang SC',sans-serif}
+/* ========== 加载动画 ========== */
+#loadingOverlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(245,246,250,0.85);display:none;z-index:9999;justify-content:center;align-items:center;flex-direction:column}
+#loadingOverlay.active{display:flex}
+.spinner{width:48px;height:48px;border:4px solid #dfe6e9;border-top-color:#2d5bd6;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{margin-top:14px;font-size:14px;color:#636e72}
+/* ========== 头部 ========== */
+.header{background:linear-gradient(135deg,#0c0c3a,#1a1a5e,#2d5bd6);color:#fff;padding:14px 20px;text-align:center;position:relative;overflow:hidden}
+.header::after{content:'';position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.03),transparent);animation:shimmer 4s infinite}
+@keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+.header h1{font-family:'Orbitron',sans-serif;font-size:20px;font-weight:600;letter-spacing:3px;text-shadow:0 0 20px rgba(45,91,214,0.5)}
+.header .sub{font-size:11px;opacity:.6;letter-spacing:1px;margin-top:2px}
+/* ========== 状态栏 ========== */
+.status-bar{background:linear-gradient(90deg,#eef2ff,#e8f4fd);padding:5px 20px;font-size:12px;color:#1a5a9e;border-bottom:1px solid #d0e3f7;min-height:26px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px}
+.status-bar .info-right{color:#636e72;font-size:11px}
+/* ========== 控制栏 ========== */
+.controls{background:#fff;padding:10px 20px;border-bottom:1px solid #e0e0e0;display:flex;flex-wrap:wrap;gap:10px;align-items:end}
 .control-group{display:flex;flex-direction:column;gap:2px}
-.control-group label{font-size:11px;color:#666;font-weight:500}
-.control-group select,.control-group input{padding:5px 8px;border:1px solid #ccc;border-radius:4px;font-size:13px;outline:none}
-.control-group select:focus,.control-group input:focus{border-color:#2d5bd6}
-.control-group input[type=number]{width:70px}
+.control-group label{font-size:11px;color:#636e72;font-weight:500}
+.control-group select,.control-group input{padding:5px 8px;border:1px solid #d0d0d0;border-radius:5px;font-size:13px;outline:none;background:#fff;transition:border-color .2s}
+.control-group select:focus,.control-group input:focus{border-color:#2d5bd6;box-shadow:0 0 0 2px rgba(45,91,214,0.1)}
+.control-group input[type=number]{width:80px}
 .control-group select{min-width:100px}
+/* ========== 标签页 ========== */
 .tabs{display:flex;background:#fff;border-bottom:1px solid #dee2e6;padding:0 20px}
-.tab-btn{padding:10px 18px;border:none;background:none;font-size:13px;color:#666;cursor:pointer;border-bottom:2px solid transparent;transition:.2s}
+.tab-btn{padding:11px 20px;border:none;background:none;font-size:13px;color:#636e72;cursor:pointer;border-bottom:2px solid transparent;transition:all .25s;position:relative}
+.tab-btn::after{content:'';position:absolute;bottom:0;left:50%;width:0;height:2px;background:#2d5bd6;transition:all .3s;transform:translateX(-50%)}
 .tab-btn:hover{color:#2d5bd6}
-.tab-btn.active{color:#2d5bd6;border-bottom-color:#2d5bd6;font-weight:600}
+.tab-btn.active{color:#2d5bd6;font-weight:600}
+.tab-btn.active::after{width:60%}
 .tab-content{display:none;padding:12px 20px}
 .tab-content.active{display:block}
 .chart-container{width:100%}
-.status-bar{background:#e8f4fd;padding:6px 20px;font-size:12px;color:#1a73e8;border-bottom:1px solid #d0e3f7}
-.loading{text-align:center;padding:60px;color:#999;font-size:16px}
-.band-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.band-grid .full{grid-column:1/-1}
-.dual-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-@media(max-width:768px){.band-grid{grid-template-columns:1fr}.dual-grid{grid-template-columns:1fr}}
-.subtitle{font-size:15px;font-weight:600;color:#333;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid #eee}
+.subtitle{font-size:15px;font-weight:600;color:#2d3436;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #eee}
 .info-text{font-size:12px;color:#888;margin-bottom:6px}
+/* ========== 脑波拆分 ========== */
+.band-vertical{display:flex;flex-direction:column;gap:10px}
+/* ========== 响应式 ========== */
+.dual-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:768px){.dual-grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
 
-<div class="header"><h1>EEG 脑电数据可视化</h1></div>
+<div id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="loading-text">数据加载中...</div>
+</div>
 
-<div class="status-bar" id="statusBar">加载中...</div>
+<div class="header">
+  <h1>EEG VISUALIZER</h1>
+  <div class="sub">30-CHANNEL BRAIN DATA EXPLORER</div>
+</div>
+
+<div class="status-bar" id="statusBar">
+  <span id="statusLeft">初始化中...</span>
+  <span class="info-right" id="statusRight"></span>
+</div>
 
 <div class="controls" id="controls">
   <div class="control-group">
     <label>被试分组</label>
-    <select id="grpSelect"><option value="all">全部</option><option value="HC">正常人</option><option value="DEP">抑郁症</option></select>
+    <select id="grpSelect"><option value="all">全部</option><option value="HC">正常人</option><option value="DEP">抑郁症患者</option></select>
   </div>
   <div class="control-group">
     <label>选择被试</label>
-    <select id="subjSelect" style="min-width:160px"><option>-- 加载中 --</option></select>
+    <select id="subjSelect" style="min-width:160px"><option>--</option></select>
   </div>
   <div class="control-group">
-    <label>情绪</label>
-    <select id="condSelect"><option value="pos">积极</option><option value="neu">中性</option></select>
+    <label>情绪类别</label>
+    <select id="condSelect"><option value="pos">积极情绪</option><option value="neu">中性情绪</option></select>
   </div>
   <div class="control-group">
-    <label>幅值</label>
-    <input type="number" id="ampInput" value="1" min="0.1" max="10" step="0.1">
+    <label>显示量程 (μV)</label>
+    <input type="number" id="scaleInput" value="100" min="10" max="500" step="10">
   </div>
   <div class="control-group">
-    <label>窗口(采样点)</label>
+    <label>时间窗口 (采样点)</label>
     <input type="number" id="winInput" value="1000" min="100" max="50000" step="100">
   </div>
   <div class="control-group">
-    <label>偏移</label>
+    <label>偏移量 (采样点)</label>
     <input type="number" id="offsetInput" value="0" min="0" max="49000" step="100">
   </div>
   <div class="control-group">
-    <label>通道1</label>
+    <label>通道 A</label>
     <select id="ch1Select"></select>
   </div>
   <div class="control-group">
-    <label>通道2</label>
+    <label>通道 B</label>
     <select id="ch2Select"></select>
   </div>
 </div>
@@ -85,17 +113,31 @@ body{background:#f8f9fa;color:#333}
 
 <div class="tab-content active" id="tab1"><div class="chart-container" id="chart30"></div></div>
 <div class="tab-content" id="tab2"><div class="subtitle" id="dualTitle">双通道 原始波形</div><div class="dual-grid"><div class="chart-container" id="chartCh1"></div><div class="chart-container" id="chartCh2"></div></div></div>
-<div class="tab-content" id="tab3"><div class="subtitle">五种脑波拆分对比</div><div class="band-grid" id="bandGrid"></div></div>
-<div class="tab-content" id="tab4"><div class="subtitle">3D 脑电热图 — α 波段能量分布</div><div class="info-text">鼠标拖拽旋转 · 滚轮缩放 · 悬停查看通道数值</div><div class="chart-container" id="chart3d"></div></div>
+<div class="tab-content" id="tab3"><div class="subtitle">五种脑波拆分对比</div><div class="band-vertical" id="bandList"></div></div>
+<div class="tab-content" id="tab4"><div class="subtitle">3D 脑电热图 — α 波段能量分布</div><div class="info-text" style="margin-bottom:4px">鼠标拖拽旋转 · 滚轮缩放 · 悬停查看数值</div><div class="info-text" style="margin-bottom:2px;font-size:11px;color:#aaa">颜色分区: <span style="color:#4FC3F7">●</span> 额叶 <span style="color:#81C784">●</span> 中央区 <span style="color:#FFB74D">●</span> 颞叶 <span style="color:#CE93D8">●</span> 顶叶 <span style="color:#EF5350">●</span> 枕叶</div><div class="chart-container" id="chart3d"></div></div>
 
 <script>
 // ============================= 常量 =============================
 const CHANNEL_NAMES = ["FP1","FP2","F7","F3","FZ","F4","F8","FT7","FC3","FCZ","FC4","FT8","T3","C3","CZ","C4","T4","TP7","CP3","CPZ","CP4","TP8","T5","P3","PZ","P4","T6","O1","OZ","O2"];
 const FS = 250;
 const BANDS = {'delta':[0.5,4],'theta':[4,8],'alpha':[8,13],'beta':[13,30],'gamma':[30,45]};
-const BAND_LABELS = {'delta':'δ (0.5-4Hz)','theta':'θ (4-8Hz)','alpha':'α (8-13Hz)','beta':'β (13-30Hz)','gamma':'γ (30-45Hz)'};
+const BAND_LABELS = {'delta':'δ (0.5-4Hz)  Delta','theta':'θ (4-8Hz)  Theta','alpha':'α (8-13Hz)  Alpha','beta':'β (13-30Hz)  Beta','gamma':'γ (30-45Hz)  Gamma'};
 const BAND_COLORS = ['#4F46E5','#DB2777'];
 const NAVY = '#001F4D';
+
+// 解剖学分区（用于3D热图）
+const REGIONS = {
+  'F':{name:'额叶',color:'#4FC3F7',indices:[0,1,2,3,4,5,6]},     // FP1,FP2,F7,F3,FZ,F4,F8
+  'C':{name:'中央区',color:'#81C784',indices:[7,8,9,10,11,13,14,15,18,19,20]}, // FT7,FC3,FCZ,FC4,FT8,C3,CZ,C4,CP3,CPZ,CP4
+  'T':{name:'颞叶',color:'#FFB74D',indices:[12,16,17,21,22,26]},  // T3,T4,TP7,TP8,T5,T6
+  'P':{name:'顶叶',color:'#CE93D8',indices:[23,24,25]},           // P3,PZ,P4
+  'O':{name:'枕叶',color:'#EF5350',indices:[27,28,29]}            // O1,OZ,O2
+};
+const CH_REGION = new Array(30).fill(null);
+for(const [rk,rv] of Object.entries(REGIONS)){
+  for(const idx of rv.indices) CH_REGION[idx]=rk;
+}
+const REGION_INDICES = Object.values(REGIONS).flatMap(r=>r.indices);
 
 const CH_COORDS = {'FP1':[-0.25,-0.90,0.45],'FP2':[0.25,-0.90,0.45],'F7':[-0.65,-0.70,0.30],'F3':[-0.38,-0.55,0.65],'FZ':[0.00,-0.50,0.80],'F4':[0.38,-0.55,0.65],'F8':[0.65,-0.70,0.30],'FT7':[-0.75,-0.40,0.10],'FC3':[-0.42,-0.25,0.72],'FCZ':[0.00,-0.20,0.85],'FC4':[0.42,-0.25,0.72],'FT8':[0.75,-0.40,0.10],'T3':[-0.88,0.00,0.10],'C3':[-0.48,0.00,0.78],'CZ':[0.00,0.00,0.90],'C4':[0.48,0.00,0.78],'T4':[0.88,0.00,0.10],'TP7':[-0.82,0.32,0.05],'CP3':[-0.42,0.32,0.65],'CPZ':[0.00,0.38,0.78],'CP4':[0.42,0.32,0.65],'TP8':[0.82,0.32,0.05],'T5':[-0.70,0.62,0.22],'P3':[-0.38,0.62,0.55],'PZ':[0.00,0.68,0.65],'P4':[0.38,0.62,0.55],'T6':[0.70,0.62,0.22],'O1':[-0.28,0.90,0.35],'OZ':[0.00,0.95,0.35],'O2':[0.28,0.90,0.35]};
 const CH_COORDS_ARRAY = CHANNEL_NAMES.map(ch=>CH_COORDS[ch]);
@@ -103,313 +145,312 @@ const CH_COORDS_ARRAY = CHANNEL_NAMES.map(ch=>CH_COORDS[ch]);
 // ============================= 状态 =============================
 let manifest = null;
 let filterCoeffs = null;
-let currentData = null; // Float32Array
+let currentData = null;
 let currentSubject = null;
 
 // ============================= 工具函数 =============================
 function decodeBase64(b64){return Uint8Array.from(atob(b64),c=>c.charCodeAt(0))}
 function decompressData(b64, scale, shape){
-  const compressed = decodeBase64(b64);
-  const decompressed = pako.ungzip(compressed);
-  const int16 = new Int16Array(decompressed.buffer);
-  const float32 = new Float32Array(int16.length);
-  for(let i=0;i<int16.length;i++) float32[i]=int16[i]*scale;
-  return float32;
+  const c=decodeBase64(b64);const d=pako.ungzip(c);
+  const i16=new Int16Array(d.buffer);const f32=new Float32Array(i16.length);
+  for(let i=0;i<i16.length;i++) f32[i]=i16[i]*scale;
+  return f32;
 }
 
-// ============================= IIR 滤波器 (Direct Form I) =============================
-// 用最直观的直接I型实现，避免DF2T的状态管理问题
-function lfilter(b, a, x) {
-  const y = new Float64Array(x.length);
-  for (let i = 0; i < x.length; i++) {
-    let sum = 0;
-    // b项 (输入)
-    for (let j = 0; j < b.length; j++) {
-      sum += b[j] * (i >= j ? x[i - j] : 0);
-    }
-    // a项 (输出), a[0]=1 所以从 j=1 开始
-    for (let j = 1; j < a.length; j++) {
-      sum -= a[j] * (i >= j ? y[i - j] : 0);
-    }
-    y[i] = sum;
-  }
-  return y;
+// ============================= IIR 滤波器 =============================
+function lfilter(b,a,x){
+  const y=new Float64Array(x.length);
+  for(let i=0;i<x.length;i++){
+    let s=0;
+    for(let j=0;j<b.length;j++) s+=b[j]*(i>=j?x[i-j]:0);
+    for(let j=1;j<a.length;j++) s-=a[j]*(i>=j?y[i-j]:0);
+    y[i]=s;
+  }return y;
+}
+function filtfilt(b,a,x){
+  const N=x.length,pL=Math.min(200,Math.floor(N/4));
+  const p=new Float64Array(N+2*pL);
+  for(let i=0;i<pL;i++) p[i]=x[pL-1-i];
+  for(let i=0;i<N;i++) p[pL+i]=x[i];
+  for(let i=0;i<pL;i++) p[pL+N+i]=x[N-1-i];
+  const yf=lfilter(b,a,p);const yr=Array.from(yf).reverse();
+  const yb=lfilter(b,a,yr);const y=Array.from(yb).reverse();
+  return y.slice(pL,pL+N);
 }
 
-function filtfilt(b, a, x) {
-  const N = x.length;
-  // 填充信号以减少边缘效应（取前200个点镜像）
-  const padLen = Math.min(200, Math.floor(N/4));
-  const padded = new Float64Array(N + 2 * padLen);
-  // 前填充：镜像翻转
-  for (let i = 0; i < padLen; i++) padded[i] = x[padLen - 1 - i];
-  for (let i = 0; i < N; i++) padded[padLen + i] = x[i];
-  for (let i = 0; i < padLen; i++) padded[padLen + N + i] = x[N - 1 - i];
-
-  // 正向滤波
-  const yf = lfilter(b, a, padded);
-  // 反向滤波
-  const yr = Array.from(yf).reverse();
-  const yb = lfilter(b, a, yr);
-  const y = Array.from(yb).reverse();
-
-  // 去除填充
-  return y.slice(padLen, padLen + N);
-}
+// ============================= 显示控制 =============================
+function showLoading(t){document.getElementById('loadingOverlay').classList.add('active');if(t)document.querySelector('.loading-text').textContent=t;}
+function hideLoading(){document.getElementById('loadingOverlay').classList.remove('active');}
 
 // ============================= 数据加载 =============================
 async function loadManifest(){
   try{
-    const r=await fetch('./data/manifest.json');
-    manifest=await r.json();
-    const r2=await fetch('./data/filter_coeffs.json');
-    filterCoeffs=await r2.json();
+    const r=await fetch('./data/manifest.json');manifest=await r.json();
+    const r2=await fetch('./data/filter_coeffs.json');filterCoeffs=await r2.json();
     populateSubjectList();
-    document.getElementById('statusBar').textContent=`就绪 | 共 ${manifest.total} 名被试 (${manifest.subjects.filter(s=>s.group==='HC').length}正常, ${manifest.subjects.filter(s=>s.group==='DEP').length}抑郁)`;
+    const hc=manifest.subjects.filter(s=>s.group==='HC').length;
+    const dp=manifest.subjects.filter(s=>s.group==='DEP').length;
+    document.getElementById('statusLeft').textContent=`就绪 | ${manifest.total} 名被试 (正常人${hc}, 抑郁症${dp})`;
   }catch(e){
-    document.getElementById('statusBar').textContent='数据加载失败: '+e.message;
+    document.getElementById('statusLeft').textContent='数据加载失败: '+e.message;
   }
 }
-
 function populateSubjectList(){
   const grp=document.getElementById('grpSelect').value;
   const sel=document.getElementById('subjSelect');
   const subs=grp==='all'?manifest.subjects:manifest.subjects.filter(s=>s.group===grp);
-  sel.innerHTML=subs.map(s=>`<option value="${s.file}">${s.id} (${s.group})</option>`).join('');
+  sel.innerHTML=subs.map(s=>`<option value="${s.file}">${s.id} (${s.group==='HC'?'正常':'抑郁'})</option>`).join('');
   loadSubject(subs[0].file);
 }
-
 async function loadSubject(filename){
-  document.getElementById('statusBar').textContent=`加载 ${filename}...`;
+  showLoading('正在加载数据...');
+  document.getElementById('statusLeft').textContent=`加载中... ${filename}`;
   try{
     const r=await fetch(`./data/${filename}`);
     const data=await r.json();
     currentSubject=data;
     const cond=document.getElementById('condSelect').value;
     const cd=data.conditions[cond];
-    const raw=decompressData(cd.data, cd.scale, cd.shape);
+    const raw=decompressData(cd.data,cd.scale,cd.shape);
     currentData=raw;
-    document.getElementById('statusBar').textContent=`${data.subject_id} | ${cond==='pos'?'积极':'中性'}情绪 | 已加载`;
+    updateStatusBar();
+    hideLoading();
     updateChart();
   }catch(e){
-    document.getElementById('statusBar').textContent='加载失败: '+e.message;
+    hideLoading();
+    document.getElementById('statusLeft').textContent='加载失败: '+e.message;
   }
 }
+function updateStatusBar(){
+  if(!currentSubject)return;
+  const sel=document.getElementById('subjSelect');
+  const opt=sel.options[sel.selectedIndex];
+  const cond=document.getElementById('condSelect').value;
+  const off=parseInt(document.getElementById('offsetInput').value)||0;
+  const win=parseInt(document.getElementById('winInput').value)||1000;
+  const scale=parseFloat(document.getElementById('scaleInput').value)||100;
+  const end=Math.min(off+win,50000);
 
-// ============================= Chart渲染 =============================
-let plotlyConfig={responsive:true,displayModeBar:false};
+  // 计算是第几段视频
+  const videoIdx=Math.floor(off/12500)+1;
+  const videoEnd=Math.floor((end-1)/12500)+1;
+  const videoStr=videoIdx===videoEnd?`第${videoIdx}段视频`:videoIdx+'-'+videoEnd;
 
+  const tStart=(off/FS).toFixed(1);
+  const tEnd=(end/FS).toFixed(1);
+  const group=currentSubject.group==='HC'?'正常':'抑郁';
+
+  document.getElementById('statusLeft').textContent=
+    `${currentSubject.subject_id} (${group}) | ${cond==='pos'?'积极':'中性'}情绪 | 量程 ${scale} μV | ${videoStr} (${off}~${end-1} 采样点)`;
+  document.getElementById('statusRight').textContent=`窗口 ${tStart}s ~ ${tEnd}s (共${win}点)`;
+}
+
+// ============================= 数据获取（scale版）=============================
 function getWindowedData(){
-  const amp=parseFloat(document.getElementById('ampInput').value)||1;
+  const scale=parseFloat(document.getElementById('scaleInput').value)||100;
   const win=parseInt(document.getElementById('winInput').value)||1000;
   const off=parseInt(document.getElementById('offsetInput').value)||0;
-  const total=50000;
-  const end=Math.min(off+win,total);
-  const nch=30;
-  const winData=new Float32Array(nch*(end-off));
-  for(let ch=0;ch<nch;ch++){
-    for(let s=off;s<end;s++){
-      winData[ch*(end-off)+(s-off)]=currentData[ch*total+s]*amp;
-    }
-  }
-  return {data:winData,offset:off,length:end-off,amp};
+  const total=50000;const end=Math.min(off+win,total);
+  const nch=30;const raw=new Float32Array(nch*(end-off));
+  for(let ch=0;ch<nch;ch++) for(let s=off;s<end;s++) raw[ch*(end-off)+(s-off)]=currentData[ch*total+s];
+  return {data:raw,offset:off,length:end-off,scale};
 }
-
 function getTimeAxis(off,len){return Array.from({length:len},(_,i)=>(off+i)/FS)}
 
-// ----- Tab 1: 30通道 -----
+// ============================= Tab 1: 30通道总览 =============================
 function render30Channel(){
-  const {data:winData,offset:off,length:len}=getWindowedData();
+  const {data:raw,offset:off,length:len,scale}=getWindowedData();
   const time=getTimeAxis(off,len);
-  const spacing=3.5;
-  const traces=[];
+  const spacing=3.5;const traces=[];
   for(let i=0;i<30;i++){
     const yOff=(29-i)*spacing;
     const y=[];
-    for(let j=0;j<len;j++) y.push(winData[i*len+j]+yOff);
+    for(let j=0;j<len;j++) y.push(raw[i*len+j]/scale*spacing+yOff);
     traces.push({x:time,y:y,mode:'lines',line:{color:NAVY,width:0.6},name:CHANNEL_NAMES[i],
       hoverinfo:'name+x+y',showlegend:false});
   }
-  const layout={
-    height:520,margin:{l:50,r:20,t:10,b:30},
-    xaxis:{title:'时间 (s)',tickfont:{size:10},gridcolor:'#eee'},
+  // 添加 x 轴刻度标签（每2秒一个）
+  const tickVals=[];const tickText=[];
+  for(let t=Math.ceil(off/FS/2)*2;t*FS<off+len;t+=2){tickVals.push(t);tickText.push(t+'s');}
+  const layout={height:520,margin:{l:45,r:20,t:10,b:35},
+    xaxis:{title:'时间 (s)',tickfont:{size:10},gridcolor:'#eee',tickvals:tickVals,ticktext:tickText},
     yaxis:{tickvals:Array.from({length:30},(_,i)=>(29-i)*spacing),ticktext:CHANNEL_NAMES,
       tickfont:{size:8},gridcolor:'#eee'},
-    plot_bgcolor:'#fff',paper_bgcolor:'#fff',
-    hovermode:'closest'
-  };
-  Plotly.react('chart30',traces,layout,plotlyConfig);
+    plot_bgcolor:'#fff',paper_bgcolor:'#fff',hovermode:'closest'};
+  Plotly.react('chart30',traces,layout,{responsive:true,displayModeBar:false});
 }
 
-// ----- Tab 2: 双通道 -----
+// ============================= Tab 2: 双通道 =============================
 function renderDualChannel(){
-  const {data:winData,offset:off,length:len,amp}=getWindowedData();
+  const {data:raw,offset:off,length:len,scale}=getWindowedData();
   const time=getTimeAxis(off,len);
   const ch1Idx=document.getElementById('ch1Select').selectedIndex;
   const ch2Idx=document.getElementById('ch2Select').selectedIndex;
   document.getElementById('dualTitle').textContent=`${CHANNEL_NAMES[ch1Idx]}（靛紫） & ${CHANNEL_NAMES[ch2Idx]}（玫红） 原始波形`;
-
   for(let idx of[ch1Idx,ch2Idx]){
-    const y=[];
-    for(let j=0;j<len;j++) y.push(winData[idx*len+j]);
-    const traces=[{x:time,y:y,mode:'lines',
-      line:{color:idx===ch1Idx?BAND_COLORS[0]:BAND_COLORS[1],width:1},showlegend:false}];
-    const layout={height:320,margin:{l:50,r:20,t:30,b:30},
+    const y=[];for(let j=0;j<len;j++) y.push(raw[idx*len+j]);
+    const half=scale/2;
+    const traces=[{x:time,y:y,mode:'lines',line:{color:idx===ch1Idx?BAND_COLORS[0]:BAND_COLORS[1],width:1},showlegend:false}];
+    const layout={height:320,margin:{l:50,r:20,t:30,b:35},
       xaxis:{title:'时间 (s)',tickfont:{size:10},gridcolor:'#eee'},
-      yaxis:{gridcolor:'#eee'},title:{text:CHANNEL_NAMES[idx],font:{size:14}},
+      yaxis:{gridcolor:'#eee',range:[-half,half],title:{text:'μV',font:{size:11}}},
+      title:{text:CHANNEL_NAMES[idx],font:{size:14}},
       plot_bgcolor:'#fff',paper_bgcolor:'#fff'};
-    Plotly.react(idx===ch1Idx?'chartCh1':'chartCh2',traces,layout,plotlyConfig);
+    Plotly.react(idx===ch1Idx?'chartCh1':'chartCh2',traces,layout,{responsive:true,displayModeBar:false});
   }
 }
 
-// ----- Tab 3: 脑波拆分 -----
+// ============================= Tab 3: 脑波拆分 =============================
 function renderBandDecomp(){
   try{
-  const {offset:off,length:len,amp}=getWindowedData();
+  const {offset:off,length:len,scale}=getWindowedData();
   const time=getTimeAxis(off,len);
   const ch1Idx=document.getElementById('ch1Select').selectedIndex;
   const ch2Idx=document.getElementById('ch2Select').selectedIndex;
-  const grid=document.getElementById('bandGrid');
-  grid.innerHTML='';
-
+  const list=document.getElementById('bandList');
+  list.innerHTML='';
   const TOTAL=50000;
-  // 从完整信号中提取通道数据（避免滤波瞬态影响）
   const ch1Full=[],ch2Full=[];
-  for(let j=0;j<TOTAL;j++){
-    ch1Full.push(currentData[ch1Idx*TOTAL+j]);
-    ch2Full.push(currentData[ch2Idx*TOTAL+j]);
-  }
-
-  const bandKeys=Object.keys(BANDS);
-  bandKeys.forEach((key,i)=>{
-    const cf=filterCoeffs[key];
-    if(!cf) return;
-    const b=cf.b,a=cf.a;
-    // 对完整信号滤波，再截取窗口
-    const f1Full=filtfilt(b,a,ch1Full);
-    const f2Full=filtfilt(b,a,ch2Full);
-    const f1=[],f2=[];
-    for(let j=off;j<off+len&&j<TOTAL;j++){
-      f1.push(f1Full[j]*amp);
-      f2.push(f2Full[j]*amp);
-    }
-
-    const traces=[
+  for(let j=0;j<TOTAL;j++){ch1Full.push(currentData[ch1Idx*TOTAL+j]);ch2Full.push(currentData[ch2Idx*TOTAL+j]);}
+  Object.keys(BANDS).forEach((key,i)=>{
+    const cf=filterCoeffs[key];if(!cf)return;
+    const f1Full=filtfilt(cf.b,cf.a,ch1Full);
+    const f2Full=filtfilt(cf.b,cf.a,ch2Full);
+    const f1=[],f2=[];const half=scale/2;
+    for(let j=off;j<off+len&&j<TOTAL;j++){f1.push(f1Full[j]);f2.push(f2Full[j]);}
+    const wrap=document.createElement('div');
+    wrap.style.marginBottom='4px';
+    const label=document.createElement('div');
+    label.style.fontSize='13px';label.style.fontWeight='600';label.style.color='#333';label.style.marginBottom='2px';
+    label.textContent=BAND_LABELS[key];
+    wrap.appendChild(label);
+    const div=document.createElement('div');
+    div.style.height='190px';div.id='band_'+key;
+    wrap.appendChild(div);
+    list.appendChild(wrap);
+    Plotly.newPlot(div,[
       {x:time,y:f1,mode:'lines',line:{color:BAND_COLORS[0],width:0.8},name:CHANNEL_NAMES[ch1Idx]},
       {x:time,y:f2,mode:'lines',line:{color:BAND_COLORS[1],width:0.8},name:CHANNEL_NAMES[ch2Idx]}
-    ];
-    const div=document.createElement('div');
-    div.className=i<3?'':'full';
-    div.id='band_'+key;
-    grid.appendChild(div);
-    Plotly.newPlot(div,traces,{
-      height:230,margin:{l:50,r:20,t:30,b:30},
+    ],{height:180,margin:{l:50,r:20,t:10,b:30},
       xaxis:{title:'时间 (s)',tickfont:{size:9},gridcolor:'#eee'},
-      yaxis:{gridcolor:'#eee'},
-      title:{text:BAND_LABELS[key],font:{size:13}},
-      legend:{orientation:'h',y:1.1,x:0.5,xanchor:'center'},
+      yaxis:{gridcolor:'#eee',range:[-half,half],title:{text:'μV',font:{size:10}}},
+      legend:{orientation:'h',y:1.12,x:0.5,xanchor:'center'},
       plot_bgcolor:'#fff',paper_bgcolor:'#fff'
-    },plotlyConfig);
+    },{responsive:true,displayModeBar:false,staticPlot:false});
   });
-  }catch(e){console.error('BandDecomp error:',e);
-    document.getElementById('bandGrid').innerHTML='<div style="color:red;padding:20px">渲染错误: '+e.message+'</div>';}
+  }catch(e){console.error('BandDecomp:',e);document.getElementById('bandList').innerHTML='<div style="color:red;padding:20px">渲染错误: '+e.message+'</div>';}
 }
 
-// ----- Tab 4: 3D脑电热图 -----
+// ============================= Tab 4: 3D脑电热图 =============================
 function render3D(){
-  const amp=parseFloat(document.getElementById('ampInput').value)||1;
-  const total=50000;
-  const alphaPower=[];
-  // Compute alpha band power from current data
-  if(currentSubject){
-    const cond=document.getElementById('condSelect').value;
-    const ap=currentSubject.conditions[cond].alpha_power;
-    for(let i=0;i<30;i++) alphaPower.push(ap[i]*amp);
-  }else return;
-
+  const scale=parseFloat(document.getElementById('scaleInput').value)||100;
+  if(!currentSubject)return;
+  const cond=document.getElementById('condSelect').value;
+  const ap=currentSubject.conditions[cond].alpha_power;
+  const alphaPower=ap.map(v=>v/scale*100);
   const vmin=Math.min(...alphaPower),vmax=Math.max(...alphaPower);
   const norm=alphaPower.map(v=>(v-vmin)/(vmax-vmin+1e-10));
-  const sizes=norm.map(n=>6+n*16);
+  const sizes=norm.map(n=>6+n*14);
 
-  // Brain ellipsoid
-  const sx=0.95,sy=1.0,sz=0.88;
-  const u=[],v=[];
-  for(let i=0;i<=50;i++) u.push(i/50*2*Math.PI);
-  for(let j=0;j<=50;j++) v.push(j/50*Math.PI);
-  const X=[],Y=[],Z=[];
-  for(let i=0;i<u.length;i++){
-    const rowX=[],rowY=[],rowZ=[];
-    for(let j=0;j<v.length;j++){
-      rowX.push(sx*Math.cos(u[i])*Math.sin(v[j]));
-      rowY.push(sy*Math.sin(u[i])*Math.sin(v[j]));
-      rowZ.push(sz*Math.cos(v[j]));
-    }
-    X.push(rowX);Y.push(rowY);Z.push(rowZ);
+  // Brain-like surface using parametric deformation
+  function brainSurface(U,V){
+    const theta=U*2*Math.PI,phi=V*Math.PI;
+    const x0=Math.cos(theta)*Math.sin(phi);
+    const y0=Math.sin(theta)*Math.sin(phi);
+    const z0=Math.cos(phi);
+    // Deformation: occipital bulge (+y), frontal pinch (-y), temporal bulge (|x|)
+    const r=1+0.18*y0-0.06*Math.abs(x0)+0.04*Math.cos(2*theta)*Math.sin(phi);
+    return [x0*r*0.95,y0*r,z0*r*0.88];
   }
-
-  const colorscale=[[0,'#1a1a4e'],[0.3,'#2d5bd6'],[0.55,'#2dd6c1'],[0.8,'#f5d742'],[1,'#e8321a']];
+  const Nu=60,Nv=40;
+  const X=[],Y=[],Z=[];
+  for(let i=0;i<=Nu;i++){const rx=[],ry=[],rz=[];
+    for(let j=0;j<=Nv;j++){const p=brainSurface(i/Nu,j/Nv);rx.push(p[0]);ry.push(p[1]);rz.push(p[2]);}
+    X.push(rx);Y.push(ry);Z.push(rz);
+  }
 
   const xs=CH_COORDS_ARRAY.map(c=>c[0]);
   const ys=CH_COORDS_ARRAY.map(c=>c[1]);
   const zs=CH_COORDS_ARRAY.map(c=>c[2]);
 
+  const colorscale=[[0,'#1a1a4e'],[0.3,'#2d5bd6'],[0.55,'#2dd6c1'],[0.8,'#f5d742'],[1,'#e8321a']];
+
+  // Region colors for channel dots
+  const regionColors={F:'#4FC3F7',C:'#81C784',T:'#FFB74D',P:'#CE93D8',O:'#EF5350'};
+  const chColors=CHANNEL_NAMES.map((_,i)=>regionColors[CH_REGION[i]]||'#999');
+
+  // Text annotations for lobes (3D text using scatter3d)
+  const lobePos={
+    F:{x:0,y:-0.58,z:0.65},C:{x:0,y:0.05,z:0.80},
+    T:{x:0.75,y:-0.02,z:0.05},P:{x:0,y:0.6,z:0.50},
+    O:{x:0,y:0.85,z:0.25}
+  };
+  const lobeNames={F:'额叶\nFrontal',C:'中央区\nCentral',T:'颞叶\nTemporal',P:'顶叶\nParietal',O:'枕叶\nOccipital'};
+
   const traces=[
+    // Brain surface outer
     {type:'surface',x:X,y:Y,z:Z,opacity:0.08,showscale:false,hoverinfo:'skip',
-     colorscale:[[0,'rgba(200,205,220,0.06)'],[1,'rgba(180,185,200,0.10)']],
+     colorscale:[[0,'rgba(180,185,200,0.05)'],[1,'rgba(160,170,190,0.10)']],
      lighting:{ambient:0.8,diffuse:0.3}},
+    // Brain surface inner
     {type:'surface',x:X.map(r=>r.map(v=>v*0.92)),y:Y.map(r=>r.map(v=>v*0.92)),z:Z.map(r=>r.map(v=>v*0.92)),
-     opacity:0.05,showscale:false,hoverinfo:'skip',
-     colorscale:[[0,'rgba(220,225,235,0.04)'],[1,'rgba(200,205,215,0.06)']],
+     opacity:0.04,showscale:false,hoverinfo:'skip',
+     colorscale:[[0,'rgba(200,205,215,0.03)'],[1,'rgba(180,190,200,0.05)']],
      lighting:{ambient:0.9,diffuse:0.2}},
-    {type:'scatter3d',mode:'markers',
+    // Midline (longitudinal fissure)
+    {type:'scatter3d',mode:'lines',
+     x:Array.from({length:50},(_,i)=>{const p=brainSurface(.5,i/49);return p[0]*0.5}),
+     y:Array.from({length:50},(_,i)=>{const p=brainSurface(.5,i/49);return p[1]*0.5}),
+     z:Array.from({length:50},(_,i)=>{const p=brainSurface(.5,i/49);return Math.abs(p[2])}),
+     line:{color:'rgba(120,130,150,0.15)',width:2},hoverinfo:'skip',showlegend:false},
+    // Channel dots colored by region
+    {type:'scatter3d',mode:'markers+text',
      x:xs,y:ys,z:zs,
-     marker:{size:sizes,color:alphaPower,colorscale,cmin:vmin,cmax:vmax,showscale:true,
-       colorbar:{title:{text:'Alpha Power',side:'right',font:{size:13}},thickness:18,len:0.6,
-         tickfont:{size:11}},
+     marker:{size:sizes,color:chColors,showscale:false,
        line:{width:0.6,color:'#1a1a2e'},opacity:0.92},
-     text:CHANNEL_NAMES,
-     hovertemplate:'<b>%{text}</b><br>Alpha: %{marker.color:.2f}<br><extra></extra>'}
+     text:CHANNEL_NAMES,textfont:{size:9,color:'#333'},textposition:'top center',
+     hoverinfo:'text',
+     hovertemplate:'<b>%{text}</b><br>Region: %{customdata}<br>Alpha: %{marker.color:.2f}<br><extra></extra>',
+     customdata:CHANNEL_NAMES.map(ch=>{
+       for(const [rk,rv] of Object.entries(REGIONS)){if(rv.indices.includes(CHANNEL_NAMES.indexOf(ch)))return rv.name;}
+       return '';
+     }),
+     showlegend:false},
+    // Lobe annotations
+    {type:'scatter3d',mode:'text',
+     x:Object.values(lobePos).map(p=>p.x),
+     y:Object.values(lobePos).map(p=>p.y),
+     z:Object.values(lobePos).map(p=>p.z),
+     text:Object.keys(lobePos).map(k=>lobeNames[k]),
+     textfont:{size:11,color:'#555'},
+     hoverinfo:'skip',showlegend:false}
   ];
 
-  // Reference arc
-  const theta=Array.from({length:80},(_,i)=>i/80*2*Math.PI);
-  traces.push({type:'scatter3d',mode:'lines',
-    x:theta.map(t=>sx*0.7*Math.cos(t)),
-    y:theta.map(t=>0),
-    z:theta.map(t=>Math.abs(sz*0.7*Math.sin(t))),
-    line:{color:'rgba(150,155,170,0.2)',width:1},hoverinfo:'skip',showlegend:false});
-
-  const layout={
-    scene:{xaxis:{visible:false,range:[-1.1,1.1]},yaxis:{visible:false,range:[-1.15,1.15]},
-      zaxis:{visible:false,range:[-0.1,1.0]},bgcolor:'rgba(248,249,250,1)',
-      aspectmode:'manual',aspectratio:{x:1,y:1.05,z:0.85},
-      camera:{eye:{x:1.6,y:-1.8,z:1.2},center:{x:0,y:0,z:0.15}}},
-    margin:{l:0,r:40,t:0,b:0},paper_bgcolor:'rgba(248,249,250,1)',height:600,showlegend:false};
+  const layout={scene:{xaxis:{visible:false,range:[-1.1,1.1]},yaxis:{visible:false,range:[-1.15,1.15]},
+    zaxis:{visible:false,range:[-0.1,1.0]},bgcolor:'rgba(248,249,250,1)',
+    aspectmode:'manual',aspectratio:{x:1,y:1.05,z:0.85},
+    camera:{eye:{x:1.6,y:-1.8,z:1.2},center:{x:0,y:0,z:0.15}}},
+    margin:{l:0,r:30,t:0,b:0},paper_bgcolor:'rgba(248,249,250,1)',height:600,showlegend:false};
   Plotly.react('chart3d',traces,layout,{responsive:true,displayModeBar:false,scrollZoom:true});
 }
 
 // ============================= 主渲染调度 =============================
 function updateChart(){
-  if(!currentData) return;
-  const activeTab=document.querySelector('.tab-btn.active').dataset.tab;
-  if(activeTab==='tab1') render30Channel();
-  else if(activeTab==='tab2') renderDualChannel();
-  else if(activeTab==='tab3') renderBandDecomp();
-  else if(activeTab==='tab4') render3D();
+  if(!currentData)return;
+  const t=document.querySelector('.tab-btn.active').dataset.tab;
+  if(t==='tab1') render30Channel();
+  else if(t==='tab2') renderDualChannel();
+  else if(t==='tab3') renderBandDecomp();
+  else if(t==='tab4') render3D();
 }
 
 // ============================= 初始化 =============================
 function init(){
-  // Populate channel selections
   const ch1=document.getElementById('ch1Select');
   const ch2=document.getElementById('ch2Select');
-  CHANNEL_NAMES.forEach((ch,i)=>{
-    ch1.innerHTML+=`<option value="${i}">${ch}</option>`;
-    ch2.innerHTML+=`<option value="${i}">${ch}</option>`;
-  });
+  CHANNEL_NAMES.forEach((ch,i)=>{ch1.innerHTML+=`<option value="${i}">${ch}</option>`;ch2.innerHTML+=`<option value="${i}">${ch}</option>`;});
   ch2.value='1';
 
-  // Tab switching
   document.querySelectorAll('.tab-btn').forEach(btn=>{
     btn.addEventListener('click',()=>{
       document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
@@ -420,30 +461,18 @@ function init(){
     });
   });
 
-  // Control events
-  ['ampInput','winInput','offsetInput'].forEach(id=>{
-    document.getElementById(id).addEventListener('input',updateChart);
-    document.getElementById(id).addEventListener('change',updateChart);
+  ['scaleInput','winInput','offsetInput'].forEach(id=>{
+    document.getElementById(id).addEventListener('input',()=>{updateStatusBar();updateChart();});
+    document.getElementById(id).addEventListener('change',()=>{updateStatusBar();updateChart();});
   });
-  // 切换情绪需要重新加载数据
-  document.getElementById('condSelect').addEventListener('change',()=>{
-    const sel=document.getElementById('subjSelect');
-    if(sel.value) loadSubject(sel.value);
-  });
+  document.getElementById('condSelect').addEventListener('change',()=>{const s=document.getElementById('subjSelect');if(s.value)loadSubject(s.value);});
   document.getElementById('ch1Select').addEventListener('change',updateChart);
   document.getElementById('ch2Select').addEventListener('change',updateChart);
-
   document.getElementById('grpSelect').addEventListener('change',populateSubjectList);
-  document.getElementById('subjSelect').addEventListener('change',()=>{
-    const sel=document.getElementById('subjSelect');
-    if(sel.value) loadSubject(sel.value);
-  });
-
+  document.getElementById('subjSelect').addEventListener('change',()=>{const s=document.getElementById('subjSelect');if(s.value)loadSubject(s.value);});
   loadManifest();
 }
-
 document.addEventListener('DOMContentLoaded',init);
 </script>
 </body>
 </html>
-<!-- rebuild Thu Jun  4 19:47:45     2026 -->
