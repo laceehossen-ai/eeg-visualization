@@ -64,7 +64,7 @@ body{background:#f5f6fa;color:#2d3436;font-family:-apple-system,'Microsoft YaHei
 
 <div class="header">
   <h1>EEG VISUALIZER</h1>
-  <div class="sub">30-CHANNEL BRAIN DATA EXPLORER &nbsp;|&nbsp; v1.03</div>
+  <div class="sub">30-CHANNEL BRAIN DATA EXPLORER &nbsp;|&nbsp; v1.05</div>
 </div>
 
 <div class="status-bar" id="statusBar">
@@ -344,6 +344,16 @@ function renderBandDecomp(){
   }catch(e){console.error('BandDecomp:',e);document.getElementById('bandList').innerHTML='<div style="color:red;padding:20px">渲染错误: '+e.message+'</div>';}
 }
 
+// ============================= 3D头模型数据缓存 =============================
+let headMeshData = null;
+async function loadHeadMesh(){
+  if(headMeshData) return;
+  try{
+    const r=await fetch('./data/head_mesh.json');
+    headMeshData=await r.json();
+  }catch(e){console.warn('Head mesh not loaded:', e.message);}
+}
+
 // ============================= Tab 4: 3D脑电热图 =============================
 function render3D(){
   const scale=parseFloat(document.getElementById('scaleInput').value)||100;
@@ -352,24 +362,7 @@ function render3D(){
   const ap=currentSubject.conditions[cond].alpha_power;
   const alphaPower=ap.map(v=>v/scale*100);
   const vmin=Math.min(...alphaPower),vmax=Math.max(...alphaPower);
-  const sizes=12; // 所有圈圈统一大小
-
-  // Brain-like surface using parametric deformation
-  function brainSurface(U,V){
-    const theta=U*2*Math.PI,phi=V*Math.PI;
-    const x0=Math.cos(theta)*Math.sin(phi);
-    const y0=Math.sin(theta)*Math.sin(phi);
-    const z0=Math.cos(phi);
-    // Deformation: occipital bulge (+y), frontal pinch (-y), temporal bulge (|x|)
-    const r=1+0.18*y0-0.06*Math.abs(x0)+0.04*Math.cos(2*theta)*Math.sin(phi);
-    return [x0*r*0.95,y0*r,z0*r*0.88];
-  }
-  const Nu=60,Nv=40;
-  const X=[],Y=[],Z=[];
-  for(let i=0;i<=Nu;i++){const rx=[],ry=[],rz=[];
-    for(let j=0;j<=Nv;j++){const p=brainSurface(i/Nu,j/Nv);rx.push(p[0]);ry.push(p[1]);rz.push(p[2]);}
-    X.push(rx);Y.push(ry);Z.push(rz);
-  }
+  const sizes=12;
 
   const xs=CH_COORDS_ARRAY.map(c=>c[0]);
   const ys=CH_COORDS_ARRAY.map(c=>c[1]);
@@ -377,53 +370,111 @@ function render3D(){
 
   const colorscale=[[0,'#1a1a4e'],[0.30,'#2d5bd6'],[0.55,'#2dd6c1'],[0.80,'#f5d742'],[1.00,'#e8321a']];
 
-  // 通道圈圈：大小统一，颜色用热图表示α功率
-
-  // Text annotations for lobes (3D text using scatter3d)
   const lobePos={
-    F:{x:0,y:-0.58,z:0.65},C:{x:0,y:0.05,z:0.80},
-    T:{x:0.75,y:-0.02,z:0.05},P:{x:0,y:0.6,z:0.50},
-    O:{x:0,y:0.85,z:0.25}
+    F:{x:0,y:-0.58,z:0.72},C:{x:0,y:0.05,z:0.83},
+    T:{x:0.75,y:-0.02,z:0.12},P:{x:0,y:0.6,z:0.55},
+    O:{x:0,y:0.85,z:0.30}
   };
   const lobeNames={F:'额叶\nFrontal',C:'中央区\nCentral',T:'颞叶\nTemporal',P:'顶叶\nParietal',O:'枕叶\nOccipital'};
 
-  const traces=[
-    // Brain surface outer
-    {type:'surface',x:X,y:Y,z:Z,opacity:0.08,showscale:false,hoverinfo:'skip',
-     colorscale:[[0,'rgba(180,185,200,0.05)'],[1,'rgba(160,170,190,0.10)']],
-     lighting:{ambient:0.8,diffuse:0.3}},
-    // Brain surface inner
-    {type:'surface',x:X.map(r=>r.map(v=>v*0.92)),y:Y.map(r=>r.map(v=>v*0.92)),z:Z.map(r=>r.map(v=>v*0.92)),
-     opacity:0.04,showscale:false,hoverinfo:'skip',
-     colorscale:[[0,'rgba(200,205,215,0.03)'],[1,'rgba(180,190,200,0.05)']],
-     lighting:{ambient:0.9,diffuse:0.2}},
-    // Midline (longitudinal fissure)
-    {type:'scatter3d',mode:'lines',
-     x:Array.from({length:50},(_,i)=>{const p=brainSurface(.5,i/49);return p[0]*0.5}),
-     y:Array.from({length:50},(_,i)=>{const p=brainSurface(.5,i/49);return p[1]*0.5}),
-     z:Array.from({length:50},(_,i)=>{const p=brainSurface(.5,i/49);return Math.abs(p[2])}),
-     line:{color:'rgba(120,130,150,0.15)',width:2},hoverinfo:'skip',showlegend:false},
-    // Channel dots: uniform size, heatmap colors by alpha power
-    {type:'scatter3d',mode:'markers+text',
-     x:xs,y:ys,z:zs,
-     marker:{size:sizes,color:alphaPower,colorscale,cmin:vmin,cmax:vmax,showscale:true,
-       colorbar:{title:{text:'α 功率',side:'right',font:{size:13}},thickness:18,len:0.6,
-         tickfont:{size:11}},
-       line:{width:0.6,color:'#1a1a2e'},opacity:0.92},
-     text:CHANNEL_NAMES,textfont:{size:9,color:'#333'},textposition:'top center',
-     hoverinfo:'text',
-     hovertemplate:'<b>%{text}</b><br>区域: %{customdata[0]}<br>α功率: %{customdata[1]:.2f}<br><extra></extra>',
-     customdata:CHANNEL_NAMES.map((ch,i)=>{
-       let region='';
-       for(const [rk,rv] of Object.entries(REGIONS)){if(rv.indices.includes(i)){region=rv.name;break;}}
-       return [region, alphaPower[i]];
-     }),
-     showlegend:false},
-    // Lobe annotations
-    {type:'scatter3d',mode:'text',
-     x:Object.values(lobePos).map(p=>p.x),
-     y:Object.values(lobePos).map(p=>p.y),
-     z:Object.values(lobePos).map(p=>p.z),
+  const traces=[];
+
+  // 使用预计算的头模型网格
+  if(headMeshData){
+    traces.push({
+      type:'mesh3d',
+      x:headMeshData.x,y:headMeshData.y,z:headMeshData.z,
+      i:headMeshData.i,j:headMeshData.j,k:headMeshData.k,
+      opacity:0.12,color:'rgba(180,190,210,0.85)',
+      lighting:{ambient:0.7,diffuse:0.3,specular:0.05},
+      hoverinfo:'skip',showscale:false
+    });
+    // 内层半透明脑表面（增加立体感）
+    const sc=0.85;
+    traces.push({
+      type:'mesh3d',
+      x:headMeshData.x.map(v=>v*sc),y:headMeshData.y.map(v=>v*sc),
+      z:headMeshData.z.map(v=>v*sc),
+      i:headMeshData.i,j:headMeshData.j,k:headMeshData.k,
+      opacity:0.05,color:'rgba(200,210,230,0.9)',
+      lighting:{ambient:0.8,diffuse:0.2},
+      hoverinfo:'skip',showscale:false
+    });
+  }else{
+    // 降级：简易椭球
+    function es(u,v){
+      const t=u*2*Math.PI,p=v*Math.PI/2;
+      return [Math.cos(t)*Math.sin(p)*0.95,Math.sin(t)*Math.sin(p),Math.cos(p)*0.88];
+    }
+    const nu=40,nv=25;const X=[],Y=[],Z=[];
+    for(let i=0;i<=nu;i++){const rx=[],ry=[],rz=[];
+      for(let j=0;j<=nv;j++){const p=es(i/nu,j/nv);rx.push(p[0]);ry.push(p[1]);rz.push(p[2]);}
+      X.push(rx);Y.push(ry);Z.push(rz);
+    }
+    traces.push({type:'surface',x:X,y:Y,z:Z,opacity:0.1,showscale:false,hoverinfo:'skip',
+      colorscale:[[0,'rgba(180,185,200,0.05)'],[1,'rgba(160,170,190,0.10)']],
+      lighting:{ambient:0.8,diffuse:0.3}});
+    traces.push({type:'surface',x:X.map(r=>r.map(v=>v*0.92)),y:Y.map(r=>r.map(v=>v*0.92)),z:Z.map(r=>r.map(v=>v*0.92)),
+      opacity:0.04,showscale:false,hoverinfo:'skip',
+      colorscale:[[0,'rgba(200,205,215,0.03)'],[1,'rgba(180,190,200,0.05)']],
+      lighting:{ambient:0.9,diffuse:0.2}});
+  }
+
+  // 中线参考（大脑纵裂）
+  const midline=[];
+  for(let i=0;i<=60;i++){
+    const v=i/60,phi=v*Math.PI/2;
+    midline.push([0, Math.sin(phi)*0.5, Math.cos(phi)*0.88*0.5]);
+  }
+  traces.push({type:'scatter3d',mode:'lines',
+    x:midline.map(p=>p[0]),y:midline.map(p=>p[1]),z:midline.map(p=>Math.abs(p[2])),
+    line:{color:'rgba(120,130,150,0.12)',width:2},hoverinfo:'skip',showlegend:false});
+
+  // 额叶/枕叶/颞叶 参考弧线
+  for(const [angle,label] of [[0,'额叶方向'],[Math.PI/2,'颞叶方向'],[Math.PI,'枕叶方向']]){
+    const arc=[];
+    for(let i=0;i<=40;i++){
+      const v=i/40,phi=v*Math.PI/2;
+      arc.push([Math.cos(angle)*Math.sin(phi)*0.6,Math.sin(angle)*Math.sin(phi)*0.6,Math.cos(phi)*0.88*0.4]);
+    }
+    traces.push({type:'scatter3d',mode:'lines+text',
+      x:arc.map(p=>p[0]),y:arc.map(p=>p[1]),z:arc.map(p=>p[2]),
+      text:['',label,''],textfont:{size:8,color:'rgba(150,155,170,0.3)'},textposition:'middle center',
+      line:{color:'rgba(150,155,170,0.08)',width:1},hoverinfo:'skip',showlegend:false});
+  }
+
+  // 通道点
+  traces.push({type:'scatter3d',mode:'markers+text',
+    x:xs,y:ys,z:zs,
+    marker:{size:sizes,color:alphaPower,colorscale,cmin:vmin,cmax:vmax,showscale:true,
+      colorbar:{title:{text:'α 功率',side:'right',font:{size:13}},thickness:18,len:0.6,
+        tickfont:{size:11}},
+      line:{width:0.6,color:'#1a1a2e'},opacity:0.92},
+    text:CHANNEL_NAMES,textfont:{size:9,color:'#333'},textposition:'top center',
+    hoverinfo:'text',
+    hovertemplate:'<b>%{text}</b><br>区域: %{customdata[0]}<br>α功率: %{customdata[1]:.2f}<br><extra></extra>',
+    customdata:CHANNEL_NAMES.map((ch,i)=>{
+      let region='';
+      for(const [rk,rv] of Object.entries(REGIONS)){if(rv.indices.includes(i)){region=rv.name;break;}}
+      return [region, alphaPower[i]];
+    }),
+    showlegend:false});
+
+  // 鼻子/面部标记（帮助分辨前后方向）
+  traces.push({type:'scatter3d',mode:'markers+text',
+    x:[0, -0.06, 0.06],y:[-0.85, -0.90, -0.90],z:[0.38, 0.28, 0.28],
+    marker:{size:4,color:'rgba(180,140,130,0.3)',symbol:'diamond'},
+    text:['','',''],textfont:{size:8,color:'rgba(100,100,120,0.4)'},
+    hoverinfo:'skip',showlegend:false});
+  traces.push({type:'scatter3d',mode:'text',
+    x:[0],y:[-0.75],z:[0.15],text:['→ 面部前方'],textfont:{size:10,color:'rgba(120,130,150,0.5)'},
+    hoverinfo:'skip',showlegend:false});
+
+  // 脑区标注
+  traces.push({type:'scatter3d',mode:'text',
+    x:Object.values(lobePos).map(p=>p.x),
+    y:Object.values(lobePos).map(p=>p.y),
+    z:Object.values(lobePos).map(p=>p.z),
      text:Object.keys(lobePos).map(k=>lobeNames[k]),
      textfont:{size:11,color:'#555'},
      hoverinfo:'skip',showlegend:false}
@@ -473,7 +524,7 @@ function init(){
   document.getElementById('ch2Select').addEventListener('change',updateChart);
   document.getElementById('grpSelect').addEventListener('change',populateSubjectList);
   document.getElementById('subjSelect').addEventListener('change',()=>{const s=document.getElementById('subjSelect');if(s.value)loadSubject(s.value);});
-  loadManifest();
+  loadManifest();loadHeadMesh();
 }
 document.addEventListener('DOMContentLoaded',init);
 </script>
