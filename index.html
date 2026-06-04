@@ -114,7 +114,7 @@ body{background:#f5f6fa;color:#2d3436;font-family:-apple-system,'Microsoft YaHei
 <div class="tab-content active" id="tab1"><div class="chart-container" id="chart30"></div></div>
 <div class="tab-content" id="tab2"><div class="subtitle" id="dualTitle">双通道 原始波形</div><div class="dual-grid"><div class="chart-container" id="chartCh1"></div><div class="chart-container" id="chartCh2"></div></div></div>
 <div class="tab-content" id="tab3"><div class="subtitle">五种脑波拆分对比</div><div class="band-vertical" id="bandList"></div></div>
-<div class="tab-content" id="tab4"><div class="subtitle">3D 脑电热图 — α 波段能量分布</div><div class="info-text" style="margin-bottom:4px">鼠标拖拽旋转 · 滚轮缩放 · 悬停查看数值</div><div class="info-text" style="margin-bottom:2px;font-size:11px;color:#aaa">颜色分区: <span style="color:#4FC3F7">●</span> 额叶 <span style="color:#81C784">●</span> 中央区 <span style="color:#FFB74D">●</span> 颞叶 <span style="color:#CE93D8">●</span> 顶叶 <span style="color:#EF5350">●</span> 枕叶</div><div class="chart-container" id="chart3d"></div></div>
+<div class="tab-content" id="tab4"><div class="subtitle">3D 脑电热图 — α 波段能量分布</div><div class="info-text" style="margin-bottom:4px">鼠标拖拽旋转 · 滚轮缩放 · 悬停查看数值 · <b>圆圈越大 = α波能量越强</b></div><div class="info-text" style="margin-bottom:2px;font-size:11px;color:#aaa">分区颜色: <span style="color:#4FC3F7">●</span> 额叶 <span style="color:#81C784">●</span> 中央区 <span style="color:#FFB74D">●</span> 颞叶 <span style="color:#CE93D8">●</span> 顶叶 <span style="color:#EF5350">●</span> 枕叶 &nbsp;|&nbsp; 大小: 越大=α功率越强</div><div class="chart-container" id="chart3d"></div></div>
 
 <script>
 // ============================= 常量 =============================
@@ -403,17 +403,18 @@ function render3D(){
      y:Array.from({length:50},(_,i)=>{const p=brainSurface(.5,i/49);return p[1]*0.5}),
      z:Array.from({length:50},(_,i)=>{const p=brainSurface(.5,i/49);return Math.abs(p[2])}),
      line:{color:'rgba(120,130,150,0.15)',width:2},hoverinfo:'skip',showlegend:false},
-    // Channel dots colored by region
+    // Channel dots colored by region, sized by alpha power
     {type:'scatter3d',mode:'markers+text',
      x:xs,y:ys,z:zs,
      marker:{size:sizes,color:chColors,showscale:false,
        line:{width:0.6,color:'#1a1a2e'},opacity:0.92},
      text:CHANNEL_NAMES,textfont:{size:9,color:'#333'},textposition:'top center',
      hoverinfo:'text',
-     hovertemplate:'<b>%{text}</b><br>Region: %{customdata}<br>Alpha: %{marker.color:.2f}<br><extra></extra>',
-     customdata:CHANNEL_NAMES.map(ch=>{
-       for(const [rk,rv] of Object.entries(REGIONS)){if(rv.indices.includes(CHANNEL_NAMES.indexOf(ch)))return rv.name;}
-       return '';
+     hovertemplate:'<b>%{text}</b><br>区域: %{customdata[0]}<br>α功率: %{customdata[1]:.2f}<br><extra></extra>',
+     customdata:CHANNEL_NAMES.map((ch,i)=>{
+       let region='';
+       for(const [rk,rv] of Object.entries(REGIONS)){if(rv.indices.includes(i)){region=rv.name;break;}}
+       return [region, alphaPower[i]];
      }),
      showlegend:false},
     // Lobe annotations
