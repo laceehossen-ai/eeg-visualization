@@ -64,7 +64,7 @@ body{background:#f5f6fa;color:#2d3436;font-family:-apple-system,'Microsoft YaHei
 
 <div class="header">
   <h1>EEG VISUALIZER</h1>
-  <div class="sub">30-CHANNEL BRAIN DATA EXPLORER &nbsp;|&nbsp; v1.05</div>
+  <div class="sub">30-CHANNEL BRAIN DATA EXPLORER &nbsp;|&nbsp; v1.08</div>
 </div>
 
 <div class="status-bar" id="statusBar">
@@ -117,7 +117,7 @@ body{background:#f5f6fa;color:#2d3436;font-family:-apple-system,'Microsoft YaHei
 <div class="tab-content active" id="tab1"><div class="chart-container" id="chart30"></div></div>
 <div class="tab-content" id="tab2"><div class="subtitle" id="dualTitle">双通道 原始波形</div><div class="dual-grid"><div class="chart-container" id="chartCh1"></div><div class="chart-container" id="chartCh2"></div></div></div>
 <div class="tab-content" id="tab3"><div class="subtitle">五种脑波拆分对比</div><div class="band-vertical" id="bandList"></div></div>
-<div class="tab-content" id="tab4"><div class="subtitle">3D 脑电热图 — α 波段能量分布</div><div class="info-text" style="margin-bottom:4px">鼠标拖拽旋转 · 滚轮缩放 · 悬停查看数值 · <b>颜色越暖(红) = α波能量越强</b></div><div class="info-text" style="margin-bottom:2px;font-size:11px;color:#aaa">悬停查看通道名 + α功率值 + 所属脑区</div><div class="chart-container" id="chart3d"></div></div>
+<div class="tab-content" id="tab4"><div class="subtitle">3D 脑电热图 — α 波段能量分布</div><div class="info-text" style="margin-bottom:4px">鼠标拖拽旋转 · 滚轮缩放 · 悬停查看数值 · <b>颜色越暖(红) = α波能量越强</b></div><div class="info-text" style="margin-bottom:2px;font-size:11px;color:#aaa">大脑渐变色彩: 前额(红橙) → 中央(黄绿) → 枕叶(青蓝) &nbsp;|&nbsp; 银色电极: α功率热图着色</div><div class="chart-container" id="chart3d"></div></div>
 
 <script>
 // ============================= 常量 =============================
@@ -379,8 +379,22 @@ function render3D(){
 
   const traces=[];
 
-  // 使用预计算的头模型网格
-  if(headMeshData){
+  // 使用预计算的头模型网格（带逐顶点颜色）
+  if(headMeshData && headMeshData.vertex_r){
+    // 构建 vertexcolor 数组 [r0,g0,b0, r1,g1,b1, ...]
+    const vc = [];
+    for(let i=0;i<headMeshData.x.length;i++){
+      vc.push(headMeshData.vertex_r[i], headMeshData.vertex_g[i], headMeshData.vertex_b[i]);
+    }
+    traces.push({
+      type:'mesh3d',
+      x:headMeshData.x,y:headMeshData.y,z:headMeshData.z,
+      i:headMeshData.i,j:headMeshData.j,k:headMeshData.k,
+      vertexcolor:vc,
+      lighting:{ambient:0.6,diffuse:0.4,specular:0.1,roughness:0.3},
+      hoverinfo:'skip',showscale:false
+    });
+  }else if(headMeshData){
     traces.push({
       type:'mesh3d',
       x:headMeshData.x,y:headMeshData.y,z:headMeshData.z,
@@ -420,38 +434,14 @@ function render3D(){
       lighting:{ambient:0.9,diffuse:0.2}});
   }
 
-  // 中线参考（大脑纵裂）
-  const midline=[];
-  for(let i=0;i<=60;i++){
-    const v=i/60,phi=v*Math.PI/2;
-    midline.push([0, Math.sin(phi)*0.5, Math.cos(phi)*0.88*0.5]);
-  }
-  traces.push({type:'scatter3d',mode:'lines',
-    x:midline.map(p=>p[0]),y:midline.map(p=>p[1]),z:midline.map(p=>Math.abs(p[2])),
-    line:{color:'rgba(120,130,150,0.12)',width:2},hoverinfo:'skip',showlegend:false});
-
-  // 额叶/枕叶/颞叶 参考弧线
-  for(const [angle,label] of [[0,'额叶方向'],[Math.PI/2,'颞叶方向'],[Math.PI,'枕叶方向']]){
-    const arc=[];
-    for(let i=0;i<=40;i++){
-      const v=i/40,phi=v*Math.PI/2;
-      arc.push([Math.cos(angle)*Math.sin(phi)*0.6,Math.sin(angle)*Math.sin(phi)*0.6,Math.cos(phi)*0.88*0.4]);
-    }
-    traces.push({type:'scatter3d',mode:'lines+text',
-      x:arc.map(p=>p[0]),y:arc.map(p=>p[1]),z:arc.map(p=>p[2]),
-      text:['',label,''],textfont:{size:8,color:'rgba(150,155,170,0.3)'},textposition:'middle center',
-      line:{color:'rgba(150,155,170,0.08)',width:1},hoverinfo:'skip',showlegend:false});
-  }
-
-  // 通道点
+  // 银色电极点（在通道位置）
   traces.push({type:'scatter3d',mode:'markers+text',
     x:xs,y:ys,z:zs,
     marker:{size:sizes,color:alphaPower,colorscale,cmin:vmin,cmax:vmax,showscale:true,
       colorbar:{title:{text:'α 功率',side:'right',font:{size:13}},thickness:18,len:0.6,
         tickfont:{size:11}},
-      line:{width:0.6,color:'#1a1a2e'},opacity:0.92},
-    text:CHANNEL_NAMES,textfont:{size:9,color:'#333'},textposition:'top center',
-    hoverinfo:'text',
+      line:{width:1.2,color:'#C0C0C0'},opacity:0.95},
+    text:CHANNEL_NAMES,textfont:{size:9,color:'#222'},textposition:'top center',
     hovertemplate:'<b>%{text}</b><br>区域: %{customdata[0]}<br>α功率: %{customdata[1]:.2f}<br><extra></extra>',
     customdata:CHANNEL_NAMES.map((ch,i)=>{
       let region='';
@@ -460,25 +450,16 @@ function render3D(){
     }),
     showlegend:false});
 
-  // 鼻子/面部标记（帮助分辨前后方向）
-  traces.push({type:'scatter3d',mode:'markers+text',
-    x:[0, -0.06, 0.06],y:[-0.85, -0.90, -0.90],z:[0.38, 0.28, 0.28],
-    marker:{size:4,color:'rgba(180,140,130,0.3)',symbol:'diamond'},
-    text:['','',''],textfont:{size:8,color:'rgba(100,100,120,0.4)'},
-    hoverinfo:'skip',showlegend:false});
+  // 简化的方向/脑区标注
+  const lobePos={F:{x:0,y:-0.58,z:0.72},C:{x:0,y:0.05,z:0.83},
+    T:{x:0.75,y:-0.02,z:0.12},P:{x:0,y:0.6,z:0.55},O:{x:0,y:0.85,z:0.30}};
+  const lobeNames={F:'额叶',C:'中央区',T:'颞叶',P:'顶叶',O:'枕叶'};
   traces.push({type:'scatter3d',mode:'text',
-    x:[0],y:[-0.75],z:[0.15],text:['→ 面部前方'],textfont:{size:10,color:'rgba(120,130,150,0.5)'},
-    hoverinfo:'skip',showlegend:false});
-
-  // 脑区标注
-  traces.push({type:'scatter3d',mode:'text',
-    x:Object.values(lobePos).map(p=>p.x),
-    y:Object.values(lobePos).map(p=>p.y),
+    x:Object.values(lobePos).map(p=>p.x),y:Object.values(lobePos).map(p=>p.y),
     z:Object.values(lobePos).map(p=>p.z),
-     text:Object.keys(lobePos).map(k=>lobeNames[k]),
-     textfont:{size:11,color:'#555'},
-     hoverinfo:'skip',showlegend:false}
-  );
+    text:Object.keys(lobePos).map(k=>lobeNames[k]),
+    textfont:{size:12,color:'#444'},
+    hoverinfo:'skip',showlegend:false});
 
   const layout={scene:{xaxis:{visible:false,range:[-1.1,1.1]},yaxis:{visible:false,range:[-1.15,1.15]},
     zaxis:{visible:false,range:[-0.1,1.0]},bgcolor:'rgba(248,249,250,1)',
