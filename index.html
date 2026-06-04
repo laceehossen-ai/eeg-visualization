@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EEG脑电数据可视化</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:-apple-system,'Microsoft YaHei',sans-serif}
+body{background:#f8f9fa;color:#333}
+.header{background:linear-gradient(135deg,#1a1a4e,#2d5bd6);color:#fff;padding:16px 20px;text-align:center}
+.header h1{font-size:22px;font-weight:600;letter-spacing:2px}
+.controls{background:#fff;padding:10px 20px;border-bottom:1px solid #e0e0e0;display:flex;flex-wrap:wrap;gap:8px;align-items:end}
+.control-group{display:flex;flex-direction:column;gap:2px}
+.control-group label{font-size:11px;color:#666;font-weight:500}
+.control-group select,.control-group input{padding:5px 8px;border:1px solid #ccc;border-radius:4px;font-size:13px;outline:none}
+.control-group select:focus,.control-group input:focus{border-color:#2d5bd6}
+.control-group input[type=number]{width:70px}
+.control-group select{min-width:100px}
+.tabs{display:flex;background:#fff;border-bottom:1px solid #dee2e6;padding:0 20px}
+.tab-btn{padding:10px 18px;border:none;background:none;font-size:13px;color:#666;cursor:pointer;border-bottom:2px solid transparent;transition:.2s}
+.tab-btn:hover{color:#2d5bd6}
+.tab-btn.active{color:#2d5bd6;border-bottom-color:#2d5bd6;font-weight:600}
+.tab-content{display:none;padding:12px 20px}
+.tab-content.active{display:block}
+.chart-container{width:100%}
+.status-bar{background:#e8f4fd;padding:6px 20px;font-size:12px;color:#1a73e8;border-bottom:1px solid #d0e3f7}
+.loading{text-align:center;padding:60px;color:#999;font-size:16px}
+.band-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.band-grid .full{grid-column:1/-1}
+.dual-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:768px){.band-grid{grid-template-columns:1fr}.dual-grid{grid-template-columns:1fr}}
+.subtitle{font-size:15px;font-weight:600;color:#333;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid #eee}
+.info-text{font-size:12px;color:#888;margin-bottom:6px}
+</style>
+</head>
+<body>
+
+<div class="header"><h1>EEG 脑电数据可视化</h1></div>
+
+<div class="status-bar" id="statusBar">加载中...</div>
+
+<div class="controls" id="controls">
+  <div class="control-group">
+    <label>被试分组</label>
+    <select id="grpSelect"><option value="all">全部</option><option value="HC">正常人</option><option value="DEP">抑郁症</option></select>
+  </div>
+  <div class="control-group">
+    <label>选择被试</label>
+    <select id="subjSelect" style="min-width:160px"><option>-- 加载中 --</option></select>
+  </div>
+  <div class="control-group">
+    <label>情绪</label>
+    <select id="condSelect"><option value="pos">积极</option><option value="neu">中性</option></select>
+  </div>
+  <div class="control-group">
+    <label>幅值</label>
+    <input type="number" id="ampInput" value="1" min="0.1" max="10" step="0.1">
+  </div>
+  <div class="control-group">
+    <label>窗口(采样点)</label>
+    <input type="number" id="winInput" value="1000" min="100" max="50000" step="100">
+  </div>
+  <div class="control-group">
+    <label>偏移</label>
+    <input type="number" id="offsetInput" value="0" min="0" max="49000" step="100">
+  </div>
+  <div class="control-group">
+    <label>通道1</label>
+    <select id="ch1Select"></select>
+  </div>
+  <div class="control-group">
+    <label>通道2</label>
+    <select id="ch2Select"></select>
+  </div>
+</div>
+
+<div class="tabs" id="tabBar">
+  <button class="tab-btn active" data-tab="tab1">30通道总览</button>
+  <button class="tab-btn" data-tab="tab2">双通道</button>
+  <button class="tab-btn" data-tab="tab3">脑波拆分</button>
+  <button class="tab-btn" data-tab="tab4">3D脑电热图</button>
+</div>
+
+<div class="tab-content active" id="tab1"><div class="chart-container" id="chart30"></div></div>
+<div class="tab-content" id="tab2"><div class="subtitle" id="dualTitle">双通道 原始波形</div><div class="dual-grid"><div class="chart-container" id="chartCh1"></div><div class="chart-container" id="chartCh2"></div></div></div>
+<div class="tab-content" id="tab3"><div class="subtitle">五种脑波拆分对比</div><div class="band-grid" id="bandGrid"></div></div>
+<div class="tab-content" id="tab4"><div class="subtitle">3D 脑电热图 — α 波段能量分布</div><div class="info-text">鼠标拖拽旋转 · 滚轮缩放 · 悬停查看通道数值</div><div class="chart-container" id="chart3d"></div></div>
+
+<script>
+// ============================= 常量 =============================
+const CHANNEL_NAMES = ["FP1","FP2","F7","F3","FZ","F4","F8","FT7","FC3","FCZ","FC4","FT8","T3","C3","CZ","C4","T4","TP7","CP3","CPZ","CP4","TP8","T5","P3","PZ","P4","T6","O1","OZ","O2"];
+const FS = 250;
+const BANDS = {'delta':[0.5,4],'theta':[4,8],'alpha':[8,13],'beta':[13,30],'gamma':[30,45]};
+const BAND_LABELS = {'delta':'δ (0.5-4Hz)','theta':'θ (4-8Hz)','alpha':'α (8-13Hz)','beta':'β (13-30Hz)','gamma':'γ (30-45Hz)'};
+const BAND_COLORS = ['#4F46E5','#DB2777'];
+const NAVY = '#001F4D';
+
+const CH_COORDS = {'FP1':[-0.25,-0.90,0.45],'FP2':[0.25,-0.90,0.45],'F7':[-0.65,-0.70,0.30],'F3':[-0.38,-0.55,0.65],'FZ':[0.00,-0.50,0.80],'F4':[0.38,-0.55,0.65],'F8':[0.65,-0.70,0.30],'FT7':[-0.75,-0.40,0.10],'FC3':[-0.42,-0.25,0.72],'FCZ':[0.00,-0.20,0.85],'FC4':[0.42,-0.25,0.72],'FT8':[0.75,-0.40,0.10],'T3':[-0.88,0.00,0.10],'C3':[-0.48,0.00,0.78],'CZ':[0.00,0.00,0.90],'C4':[0.48,0.00,0.78],'T4':[0.88,0.00,0.10],'TP7':[-0.82,0.32,0.05],'CP3':[-0.42,0.32,0.65],'CPZ':[0.00,0.38,0.78],'CP4':[0.42,0.32,0.65],'TP8':[0.82,0.32,0.05],'T5':[-0.70,0.62,0.22],'P3':[-0.38,0.62,0.55],'PZ':[0.00,0.68,0.65],'P4':[0.38,0.62,0.55],'T6':[0.70,0.62,0.22],'O1':[-0.28,0.90,0.35],'OZ':[0.00,0.95,0.35],'O2':[0.28,0.90,0.35]};
+const CH_COORDS_ARRAY = CHANNEL_NAMES.map(ch=>CH_COORDS[ch]);
+
+// ============================= 状态 =============================
+let manifest = null;
+let filterCoeffs = null;
+let currentData = null; // Float32Array
+let currentSubject = null;
+
+// ============================= 工具函数 =============================
+function decodeBase64(b64){return Uint8Array.from(atob(b64),c=>c.charCodeAt(0))}
+function decompressData(b64, scale, shape){
+  const compressed = decodeBase64(b64);
+  const decompressed = pako.ungzip(compressed);
+  const int16 = new Int16Array(decompressed.buffer);
+  const float32 = new Float32Array(int16.length);
+  for(let i=0;i<int16.length;i++) float32[i]=int16[i]*scale;
+  return float32;
+}
+
+// ============================= IIR 滤波器 (Direct Form II Transposed) =============================
+function lfilter(b, a, x) {
+  const nb = b.length, na = a.length, nz = Math.max(nb, na) - 1;
+  const y = new Float64Array(x.length);
+  const z = new Float64Array(nz);
+  for (let i = 0; i < x.length; i++) {
+    y[i] = b[0] * x[i] + z[0];
+    for (let j = 1; j < nb; j++) z[j-1] = b[j] * x[i] + z[j] - a[j] * y[i];
+    for (let j = nb; j < nz; j++) z[j-1] = z[j] - a[j] * y[i];
+  }
+  return y;
+}
+
+function filtfilt(b, a, x) {
+  // Forward
+  const yf = lfilter(b, a, x);
+  // Reverse
+  const yr = yf.slice().reverse();
+  const yb = lfilter(b, a, yr);
+  return yb.slice().reverse();
+}
+
+// ============================= 数据加载 =============================
+async function loadManifest(){
+  try{
+    const r=await fetch('./data/manifest.json');
+    manifest=await r.json();
+    const r2=await fetch('./data/filter_coeffs.json');
+    filterCoeffs=await r2.json();
+    populateSubjectList();
+    document.getElementById('statusBar').textContent=`就绪 | 共 ${manifest.total} 名被试 (${manifest.subjects.filter(s=>s.group==='HC').length}正常, ${manifest.subjects.filter(s=>s.group==='DEP').length}抑郁)`;
+  }catch(e){
+    document.getElementById('statusBar').textContent='数据加载失败: '+e.message;
+  }
+}
+
+function populateSubjectList(){
+  const grp=document.getElementById('grpSelect').value;
+  const sel=document.getElementById('subjSelect');
+  const subs=grp==='all'?manifest.subjects:manifest.subjects.filter(s=>s.group===grp);
+  sel.innerHTML=subs.map(s=>`<option value="${s.file}">${s.id} (${s.group})</option>`).join('');
+  loadSubject(subs[0].file);
+}
+
+async function loadSubject(filename){
+  document.getElementById('statusBar').textContent=`加载 ${filename}...`;
+  try{
+    const r=await fetch(`./data/${filename}`);
+    const data=await r.json();
+    currentSubject=data;
+    const cond=document.getElementById('condSelect').value;
+    const cd=data.conditions[cond];
+    const raw=decompressData(cd.data, cd.scale, cd.shape);
+    currentData=raw;
+    document.getElementById('statusBar').textContent=`${data.subject_id} | ${cond==='pos'?'积极':'中性'}情绪 | 已加载`;
+    updateChart();
+  }catch(e){
+    document.getElementById('statusBar').textContent='加载失败: '+e.message;
+  }
+}
+
+// ============================= Chart渲染 =============================
+let plotlyConfig={responsive:true,displayModeBar:false};
+
+function getWindowedData(){
+  const amp=parseFloat(document.getElementById('ampInput').value)||1;
+  const win=parseInt(document.getElementById('winInput').value)||1000;
+  const off=parseInt(document.getElementById('offsetInput').value)||0;
+  const total=50000;
+  const end=Math.min(off+win,total);
+  const nch=30;
+  const winData=new Float32Array(nch*(end-off));
+  for(let ch=0;ch<nch;ch++){
+    for(let s=off;s<end;s++){
+      winData[ch*(end-off)+(s-off)]=currentData[ch*total+s]*amp;
+    }
+  }
+  return {data:winData,offset:off,length:end-off,amp};
+}
+
+function getTimeAxis(off,len){return Array.from({length:len},(_,i)=>(off+i)/FS)}
+
+// ----- Tab 1: 30通道 -----
+function render30Channel(){
+  const {data:winData,offset:off,length:len}=getWindowedData();
+  const time=getTimeAxis(off,len);
+  const spacing=3.5;
+  const traces=[];
+  for(let i=0;i<30;i++){
+    const yOff=(29-i)*spacing;
+    const y=[];
+    for(let j=0;j<len;j++) y.push(winData[i*len+j]+yOff);
+    traces.push({x:time,y:y,mode:'lines',line:{color:NAVY,width:0.6},name:CHANNEL_NAMES[i],
+      hoverinfo:'name+x+y',showlegend:false});
+  }
+  const layout={
+    height:520,margin:{l:50,r:20,t:10,b:30},
+    xaxis:{title:'时间 (s)',tickfont:{size:10},gridcolor:'#eee'},
+    yaxis:{tickvals:Array.from({length:30},(_,i)=>(29-i)*spacing),ticktext:CHANNEL_NAMES,
+      tickfont:{size:8},gridcolor:'#eee'},
+    plot_bgcolor:'#fff',paper_bgcolor:'#fff',
+    hovermode:'closest'
+  };
+  Plotly.react('chart30',traces,layout,plotlyConfig);
+}
+
+// ----- Tab 2: 双通道 -----
+function renderDualChannel(){
+  const {data:winData,offset:off,length:len,amp}=getWindowedData();
+  const time=getTimeAxis(off,len);
+  const ch1Idx=document.getElementById('ch1Select').selectedIndex;
+  const ch2Idx=document.getElementById('ch2Select').selectedIndex;
+  document.getElementById('dualTitle').textContent=`${CHANNEL_NAMES[ch1Idx]}（靛紫） & ${CHANNEL_NAMES[ch2Idx]}（玫红） 原始波形`;
+
+  for(let idx of[ch1Idx,ch2Idx]){
+    const y=[];
+    for(let j=0;j<len;j++) y.push(winData[idx*len+j]);
+    const traces=[{x:time,y:y,mode:'lines',
+      line:{color:idx===ch1Idx?BAND_COLORS[0]:BAND_COLORS[1],width:1},showlegend:false}];
+    const layout={height:320,margin:{l:50,r:20,t:30,b:30},
+      xaxis:{title:'时间 (s)',tickfont:{size:10},gridcolor:'#eee'},
+      yaxis:{gridcolor:'#eee'},title:{text:CHANNEL_NAMES[idx],font:{size:14}},
+      plot_bgcolor:'#fff',paper_bgcolor:'#fff'};
+    Plotly.react(idx===ch1Idx?'chartCh1':'chartCh2',traces,layout,plotlyConfig);
+  }
+}
+
+// ----- Tab 3: 脑波拆分 -----
+function renderBandDecomp(){
+  const {data:winData,offset:off,length:len,amp}=getWindowedData();
+  const time=getTimeAxis(off,len);
+  const ch1Idx=document.getElementById('ch1Select').selectedIndex;
+  const ch2Idx=document.getElementById('ch2Select').selectedIndex;
+  const grid=document.getElementById('bandGrid');
+  grid.innerHTML='';
+
+  const bandKeys=Object.keys(BANDS);
+  bandKeys.forEach((key,i)=>{
+    const [low,high]=BANDS[key];
+    const cf=filterCoeffs[key];
+    if(!cf) return;
+    const b=cf.b,a=cf.a;
+    const ch1=[],ch2=[];
+    for(let j=0;j<len;j++) ch1.push(winData[ch1Idx*len+j]);
+    for(let j=0;j<len;j++) ch2.push(winData[ch2Idx*len+j]);
+    const f1=filtfilt(b,a,ch1);
+    const f2=filtfilt(b,a,ch2);
+
+    const traces=[
+      {x:time,y:f1,mode:'lines',line:{color:BAND_COLORS[0],width:0.8},name:CHANNEL_NAMES[ch1Idx]},
+      {x:time,y:f2,mode:'lines',line:{color:BAND_COLORS[1],width:0.8},name:CHANNEL_NAMES[ch2Idx]}
+    ];
+    const div=document.createElement('div');
+    div.className=i<3?'':'full';
+    div.id='band_'+key;
+    grid.appendChild(div);
+    Plotly.newPlot(div,traces,{
+      height:230,margin:{l:50,r:20,t:30,b:30},
+      xaxis:{title:'时间 (s)',tickfont:{size:9},gridcolor:'#eee'},
+      yaxis:{gridcolor:'#eee'},
+      title:{text:BAND_LABELS[key],font:{size:13}},
+      legend:{orientation:'h',y:1.1,x:0.5,xanchor:'center'},
+      plot_bgcolor:'#fff',paper_bgcolor:'#fff'
+    },plotlyConfig);
+  });
+}
+
+// ----- Tab 4: 3D脑电热图 -----
+function render3D(){
+  const amp=parseFloat(document.getElementById('ampInput').value)||1;
+  const total=50000;
+  const alphaPower=[];
+  // Compute alpha band power from current data
+  if(currentSubject){
+    const cond=document.getElementById('condSelect').value;
+    const ap=currentSubject.conditions[cond].alpha_power;
+    for(let i=0;i<30;i++) alphaPower.push(ap[i]*amp);
+  }else return;
+
+  const vmin=Math.min(...alphaPower),vmax=Math.max(...alphaPower);
+  const norm=alphaPower.map(v=>(v-vmin)/(vmax-vmin+1e-10));
+  const sizes=norm.map(n=>6+n*16);
+
+  // Brain ellipsoid
+  const sx=0.95,sy=1.0,sz=0.88;
+  const u=[],v=[];
+  for(let i=0;i<=50;i++) u.push(i/50*2*Math.PI);
+  for(let j=0;j<=50;j++) v.push(j/50*Math.PI);
+  const X=[],Y=[],Z=[];
+  for(let i=0;i<u.length;i++){
+    const rowX=[],rowY=[],rowZ=[];
+    for(let j=0;j<v.length;j++){
+      rowX.push(sx*Math.cos(u[i])*Math.sin(v[j]));
+      rowY.push(sy*Math.sin(u[i])*Math.sin(v[j]));
+      rowZ.push(sz*Math.cos(v[j]));
+    }
+    X.push(rowX);Y.push(rowY);Z.push(rowZ);
+  }
+
+  const colorscale=[[0,'#1a1a4e'],[0.3,'#2d5bd6'],[0.55,'#2dd6c1'],[0.8,'#f5d742'],[1,'#e8321a']];
+
+  const xs=CH_COORDS_ARRAY.map(c=>c[0]);
+  const ys=CH_COORDS_ARRAY.map(c=>c[1]);
+  const zs=CH_COORDS_ARRAY.map(c=>c[2]);
+
+  const traces=[
+    {type:'surface',x:X,y:Y,z:Z,opacity:0.08,showscale:false,hoverinfo:'skip',
+     colorscale:[[0,'rgba(200,205,220,0.06)'],[1,'rgba(180,185,200,0.10)']],
+     lighting:{ambient:0.8,diffuse:0.3}},
+    {type:'surface',x:X.map(r=>r.map(v=>v*0.92)),y:Y.map(r=>r.map(v=>v*0.92)),z:Z.map(r=>r.map(v=>v*0.92)),
+     opacity:0.05,showscale:false,hoverinfo:'skip',
+     colorscale:[[0,'rgba(220,225,235,0.04)'],[1,'rgba(200,205,215,0.06)']],
+     lighting:{ambient:0.9,diffuse:0.2}},
+    {type:'scatter3d',mode:'markers',
+     x:xs,y:ys,z:zs,
+     marker:{size:sizes,color:alphaPower,colorscale,cmin:vmin,cmax:vmax,showscale:true,
+       colorbar:{title:{text:'Alpha Power',side:'right',font:{size:13}},thickness:18,len:0.6,
+         tickfont:{size:11}},
+       line:{width:0.6,color:'#1a1a2e'},opacity:0.92},
+     text:CHANNEL_NAMES,
+     hovertemplate:'<b>%{text}</b><br>Alpha: %{marker.color:.2f}<br><extra></extra>'}
+  ];
+
+  // Reference arc
+  const theta=Array.from({length:80},(_,i)=>i/80*2*Math.PI);
+  traces.push({type:'scatter3d',mode:'lines',
+    x:theta.map(t=>sx*0.7*Math.cos(t)),
+    y:theta.map(t=>0),
+    z:theta.map(t=>Math.abs(sz*0.7*Math.sin(t))),
+    line:{color:'rgba(150,155,170,0.2)',width:1},hoverinfo:'skip',showlegend:false});
+
+  const layout={
+    scene:{xaxis:{visible:false,range:[-1.1,1.1]},yaxis:{visible:false,range:[-1.15,1.15]},
+      zaxis:{visible:false,range:[-0.1,1.0]},bgcolor:'rgba(248,249,250,1)',
+      aspectmode:'manual',aspectratio:{x:1,y:1.05,z:0.85},
+      camera:{eye:{x:1.6,y:-1.8,z:1.2},center:{x:0,y:0,z:0.15}}},
+    margin:{l:0,r:40,t:0,b:0},paper_bgcolor:'rgba(248,249,250,1)',height:600,showlegend:false};
+  Plotly.react('chart3d',traces,layout,{responsive:true,displayModeBar:false,scrollZoom:true});
+}
+
+// ============================= 主渲染调度 =============================
+function updateChart(){
+  if(!currentData) return;
+  const activeTab=document.querySelector('.tab-btn.active').dataset.tab;
+  if(activeTab==='tab1') render30Channel();
+  else if(activeTab==='tab2') renderDualChannel();
+  else if(activeTab==='tab3') renderBandDecomp();
+  else if(activeTab==='tab4') render3D();
+}
+
+// ============================= 初始化 =============================
+function init(){
+  // Populate channel selections
+  const ch1=document.getElementById('ch1Select');
+  const ch2=document.getElementById('ch2Select');
+  CHANNEL_NAMES.forEach((ch,i)=>{
+    ch1.innerHTML+=`<option value="${i}">${ch}</option>`;
+    ch2.innerHTML+=`<option value="${i}">${ch}</option>`;
+  });
+  ch2.value='1';
+
+  // Tab switching
+  document.querySelectorAll('.tab-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById(btn.dataset.tab).classList.add('active');
+      updateChart();
+    });
+  });
+
+  // Control events
+  ['ampInput','winInput','offsetInput','condSelect'].forEach(id=>{
+    document.getElementById(id).addEventListener('input',updateChart);
+    document.getElementById(id).addEventListener('change',updateChart);
+  });
+  document.getElementById('ch1Select').addEventListener('change',updateChart);
+  document.getElementById('ch2Select').addEventListener('change',updateChart);
+
+  document.getElementById('grpSelect').addEventListener('change',populateSubjectList);
+  document.getElementById('subjSelect').addEventListener('change',()=>{
+    const sel=document.getElementById('subjSelect');
+    if(sel.value) loadSubject(sel.value);
+  });
+
+  loadManifest();
+}
+
+document.addEventListener('DOMContentLoaded',init);
+</script>
+</body>
+</html>
