@@ -119,13 +119,16 @@ function decompressData(b64, scale, shape){
 
 // ============================= IIR 滤波器 (Direct Form II Transposed) =============================
 function lfilter(b, a, x) {
-  const nb = b.length, na = a.length, nz = Math.max(nb, na) - 1;
+  const order = Math.max(b.length, a.length) - 1;
   const y = new Float64Array(x.length);
-  const z = new Float64Array(nz);
+  // z 长度+1防止越界，z[order]始终为0（初始值）
+  const z = new Float64Array(order + 1);
   for (let i = 0; i < x.length; i++) {
     y[i] = b[0] * x[i] + z[0];
-    for (let j = 1; j < nb; j++) z[j-1] = b[j] * x[i] + z[j] - a[j] * y[i];
-    for (let j = nb; j < nz; j++) z[j-1] = z[j] - a[j] * y[i];
+    for (let j = 1; j < b.length; j++) {
+      const zNext = j < order ? z[j] : 0;
+      z[j-1] = b[j] * x[i] + zNext - a[j] * y[i];
+    }
   }
   return y;
 }
@@ -246,24 +249,34 @@ function renderDualChannel(){
 
 // ----- Tab 3: 脑波拆分 -----
 function renderBandDecomp(){
-  const {data:winData,offset:off,length:len,amp}=getWindowedData();
+  const {offset:off,length:len,amp}=getWindowedData();
   const time=getTimeAxis(off,len);
   const ch1Idx=document.getElementById('ch1Select').selectedIndex;
   const ch2Idx=document.getElementById('ch2Select').selectedIndex;
   const grid=document.getElementById('bandGrid');
   grid.innerHTML='';
 
+  const TOTAL=50000;
+  // 从完整信号中提取通道数据（避免滤波瞬态影响）
+  const ch1Full=[],ch2Full=[];
+  for(let j=0;j<TOTAL;j++){
+    ch1Full.push(currentData[ch1Idx*TOTAL+j]);
+    ch2Full.push(currentData[ch2Idx*TOTAL+j]);
+  }
+
   const bandKeys=Object.keys(BANDS);
   bandKeys.forEach((key,i)=>{
-    const [low,high]=BANDS[key];
     const cf=filterCoeffs[key];
     if(!cf) return;
     const b=cf.b,a=cf.a;
-    const ch1=[],ch2=[];
-    for(let j=0;j<len;j++) ch1.push(winData[ch1Idx*len+j]);
-    for(let j=0;j<len;j++) ch2.push(winData[ch2Idx*len+j]);
-    const f1=filtfilt(b,a,ch1);
-    const f2=filtfilt(b,a,ch2);
+    // 对完整信号滤波，再截取窗口
+    const f1Full=filtfilt(b,a,ch1Full);
+    const f2Full=filtfilt(b,a,ch2Full);
+    const f1=[],f2=[];
+    for(let j=off;j<off+len&&j<TOTAL;j++){
+      f1.push(f1Full[j]*amp);
+      f2.push(f2Full[j]*amp);
+    }
 
     const traces=[
       {x:time,y:f1,mode:'lines',line:{color:BAND_COLORS[0],width:0.8},name:CHANNEL_NAMES[ch1Idx]},
