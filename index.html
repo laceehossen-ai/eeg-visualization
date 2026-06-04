@@ -114,7 +114,7 @@ body{background:#f5f6fa;color:#2d3436;font-family:-apple-system,'Microsoft YaHei
 <div class="tab-content active" id="tab1"><div class="chart-container" id="chart30"></div></div>
 <div class="tab-content" id="tab2"><div class="subtitle" id="dualTitle">双通道 原始波形</div><div class="dual-grid"><div class="chart-container" id="chartCh1"></div><div class="chart-container" id="chartCh2"></div></div></div>
 <div class="tab-content" id="tab3"><div class="subtitle">五种脑波拆分对比</div><div class="band-vertical" id="bandList"></div></div>
-<div class="tab-content" id="tab4"><div class="subtitle">3D 脑电热图 — α 波段能量分布</div><div class="info-text" style="margin-bottom:4px">鼠标拖拽旋转 · 滚轮缩放 · 悬停查看数值 · <b>圆圈越大 = α波能量越强</b></div><div class="info-text" style="margin-bottom:2px;font-size:11px;color:#aaa">分区颜色: <span style="color:#4FC3F7">●</span> 额叶 <span style="color:#81C784">●</span> 中央区 <span style="color:#FFB74D">●</span> 颞叶 <span style="color:#CE93D8">●</span> 顶叶 <span style="color:#EF5350">●</span> 枕叶 &nbsp;|&nbsp; 大小: 越大=α功率越强</div><div class="chart-container" id="chart3d"></div></div>
+<div class="tab-content" id="tab4"><div class="subtitle">3D 脑电热图 — α 波段能量分布</div><div class="info-text" style="margin-bottom:4px">鼠标拖拽旋转 · 滚轮缩放 · 悬停查看数值 · <b>颜色越暖(红) = α波能量越强</b></div><div class="info-text" style="margin-bottom:2px;font-size:11px;color:#aaa">悬停查看通道名 + α功率值 + 所属脑区</div><div class="chart-container" id="chart3d"></div></div>
 
 <script>
 // ============================= 常量 =============================
@@ -349,8 +349,7 @@ function render3D(){
   const ap=currentSubject.conditions[cond].alpha_power;
   const alphaPower=ap.map(v=>v/scale*100);
   const vmin=Math.min(...alphaPower),vmax=Math.max(...alphaPower);
-  const norm=alphaPower.map(v=>(v-vmin)/(vmax-vmin+1e-10));
-  const sizes=norm.map(n=>6+n*14);
+  const sizes=12; // 所有圈圈统一大小
 
   // Brain-like surface using parametric deformation
   function brainSurface(U,V){
@@ -373,11 +372,9 @@ function render3D(){
   const ys=CH_COORDS_ARRAY.map(c=>c[1]);
   const zs=CH_COORDS_ARRAY.map(c=>c[2]);
 
-  const colorscale=[[0,'#1a1a4e'],[0.3,'#2d5bd6'],[0.55,'#2dd6c1'],[0.8,'#f5d742'],[1,'#e8321a']];
+  const colorscale=[[0,'#1a1a4e'],[0.30,'#2d5bd6'],[0.55,'#2dd6c1'],[0.80,'#f5d742'],[1.00,'#e8321a']];
 
-  // Region colors for channel dots
-  const regionColors={F:'#4FC3F7',C:'#81C784',T:'#FFB74D',P:'#CE93D8',O:'#EF5350'};
-  const chColors=CHANNEL_NAMES.map((_,i)=>regionColors[CH_REGION[i]]||'#999');
+  // 通道圈圈：大小统一，颜色用热图表示α功率
 
   // Text annotations for lobes (3D text using scatter3d)
   const lobePos={
@@ -403,10 +400,12 @@ function render3D(){
      y:Array.from({length:50},(_,i)=>{const p=brainSurface(.5,i/49);return p[1]*0.5}),
      z:Array.from({length:50},(_,i)=>{const p=brainSurface(.5,i/49);return Math.abs(p[2])}),
      line:{color:'rgba(120,130,150,0.15)',width:2},hoverinfo:'skip',showlegend:false},
-    // Channel dots colored by region, sized by alpha power
+    // Channel dots: uniform size, heatmap colors by alpha power
     {type:'scatter3d',mode:'markers+text',
      x:xs,y:ys,z:zs,
-     marker:{size:sizes,color:chColors,showscale:false,
+     marker:{size:sizes,color:alphaPower,colorscale,cmin:vmin,cmax:vmax,showscale:true,
+       colorbar:{title:{text:'α 功率',side:'right',font:{size:13}},thickness:18,len:0.6,
+         tickfont:{size:11}},
        line:{width:0.6,color:'#1a1a2e'},opacity:0.92},
      text:CHANNEL_NAMES,textfont:{size:9,color:'#333'},textposition:'top center',
      hoverinfo:'text',
