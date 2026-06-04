@@ -117,29 +117,44 @@ function decompressData(b64, scale, shape){
   return float32;
 }
 
-// ============================= IIR 滤波器 (Direct Form II Transposed) =============================
+// ============================= IIR 滤波器 (Direct Form I) =============================
+// 用最直观的直接I型实现，避免DF2T的状态管理问题
 function lfilter(b, a, x) {
-  const order = Math.max(b.length, a.length) - 1;
   const y = new Float64Array(x.length);
-  // z 长度+1防止越界，z[order]始终为0（初始值）
-  const z = new Float64Array(order + 1);
   for (let i = 0; i < x.length; i++) {
-    y[i] = b[0] * x[i] + z[0];
-    for (let j = 1; j < b.length; j++) {
-      const zNext = j < order ? z[j] : 0;
-      z[j-1] = b[j] * x[i] + zNext - a[j] * y[i];
+    let sum = 0;
+    // b项 (输入)
+    for (let j = 0; j < b.length; j++) {
+      sum += b[j] * (i >= j ? x[i - j] : 0);
     }
+    // a项 (输出), a[0]=1 所以从 j=1 开始
+    for (let j = 1; j < a.length; j++) {
+      sum -= a[j] * (i >= j ? y[i - j] : 0);
+    }
+    y[i] = sum;
   }
   return y;
 }
 
 function filtfilt(b, a, x) {
-  // Forward
-  const yf = lfilter(b, a, x);
-  // Reverse
-  const yr = yf.slice().reverse();
+  const N = x.length;
+  // 填充信号以减少边缘效应（取前200个点镜像）
+  const padLen = Math.min(200, Math.floor(N/4));
+  const padded = new Float64Array(N + 2 * padLen);
+  // 前填充：镜像翻转
+  for (let i = 0; i < padLen; i++) padded[i] = x[padLen - 1 - i];
+  for (let i = 0; i < N; i++) padded[padLen + i] = x[i];
+  for (let i = 0; i < padLen; i++) padded[padLen + N + i] = x[N - 1 - i];
+
+  // 正向滤波
+  const yf = lfilter(b, a, padded);
+  // 反向滤波
+  const yr = Array.from(yf).reverse();
   const yb = lfilter(b, a, yr);
-  return yb.slice().reverse();
+  const y = Array.from(yb).reverse();
+
+  // 去除填充
+  return y.slice(padLen, padLen + N);
 }
 
 // ============================= 数据加载 =============================
@@ -249,6 +264,7 @@ function renderDualChannel(){
 
 // ----- Tab 3: 脑波拆分 -----
 function renderBandDecomp(){
+  try{
   const {offset:off,length:len,amp}=getWindowedData();
   const time=getTimeAxis(off,len);
   const ch1Idx=document.getElementById('ch1Select').selectedIndex;
@@ -295,6 +311,8 @@ function renderBandDecomp(){
       plot_bgcolor:'#fff',paper_bgcolor:'#fff'
     },plotlyConfig);
   });
+  }catch(e){console.error('BandDecomp error:',e);
+    document.getElementById('bandGrid').innerHTML='<div style="color:red;padding:20px">渲染错误: '+e.message+'</div>';}
 }
 
 // ----- Tab 4: 3D脑电热图 -----
@@ -403,9 +421,14 @@ function init(){
   });
 
   // Control events
-  ['ampInput','winInput','offsetInput','condSelect'].forEach(id=>{
+  ['ampInput','winInput','offsetInput'].forEach(id=>{
     document.getElementById(id).addEventListener('input',updateChart);
     document.getElementById(id).addEventListener('change',updateChart);
+  });
+  // 切换情绪需要重新加载数据
+  document.getElementById('condSelect').addEventListener('change',()=>{
+    const sel=document.getElementById('subjSelect');
+    if(sel.value) loadSubject(sel.value);
   });
   document.getElementById('ch1Select').addEventListener('change',updateChart);
   document.getElementById('ch2Select').addEventListener('change',updateChart);
